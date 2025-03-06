@@ -28,7 +28,21 @@ import org.junit.jupiter.engine.descriptor.PdslConfigParameter;
 import org.junit.jupiter.engine.descriptor.PdslExecutable;
 import org.junit.jupiter.engine.descriptor.PdslGherkinInvocationContextProvider;
 import org.junit.jupiter.engine.descriptor.PdslTestParameter;
+/*
+Copyright 2025 Google LLC
 
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
 /**
  * This class contains JUnit Jupiter tests for Xray integration. It uses the Pdsl framework to
  * execute Gherkin scenarios and integrates with Xray for test management and reporting.
