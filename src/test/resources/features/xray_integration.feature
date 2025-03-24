@@ -44,10 +44,10 @@ Scenario: tabular
   @ios
   Examples:
     |xray-test-plan | xray-test-case |  xray-test-platform  | xray-test-env |
-    | GFENG-44108   | GFENG-45539    |  ios                 | PRD           |
-    | GFENG-44108   | GFENG-46453    |  ios                 | PRD           |
+    | GFENG-45678   | GFENG-45539    |  ios                 | PRD           |
+    | GFENG-56789   | GFENG-46453    |  ios                 | PRD           |
 
   @android
   Examples:
     |xray-test-plan | xray-test-case |  xray-test-platform  | xray-test-env |
-    | GFENG-44108   | GFENG-46453    |  android             | PRD           |
+    | GFENG-12345   | GFENG-46453    |  android             | PRD           |
