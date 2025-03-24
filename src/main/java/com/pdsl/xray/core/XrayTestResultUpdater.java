@@ -3,16 +3,14 @@ package com.pdsl.xray.core;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pdsl.executors.ExecutorObserver;
 import com.pdsl.gherkin.GherkinObserver;
-import com.pdsl.reports.TestResult;
-import com.pdsl.xray.models.Info;
-import com.pdsl.xray.models.XrayTestCase;
-import com.pdsl.xray.models.XrayTestExecutionResult;
-import com.pdsl.xray.models.XrayTestResult;
 import com.pdsl.reports.MetadataTestRunResults;
+import com.pdsl.reports.TestResult;
 import com.pdsl.specifications.Phrase;
 import com.pdsl.testcases.TaggedTestCase;
 import com.pdsl.testcases.TestCase;
-import java.io.FileInputStream;
+import com.pdsl.xray.models.Info;
+import com.pdsl.xray.models.XrayTestExecutionResult;
+import com.pdsl.xray.models.XrayTestResult;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -25,7 +23,6 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
@@ -60,9 +57,10 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
   private final ObjectMapper objectMapper; // Jackson ObjectMapper for JSON serialization
   private final Map<TestCase, List<XrayTestExecutionResult>> testCaseXrayTestExecutionResultMap = new HashMap<>();
   private final Logger logger = Logger.getLogger(this.getClass().getName());
-  private final Properties prop = new Properties();
+  private Properties prop = new Properties();
   private final List<String> environments;
   private final String user;
+  private boolean hasResults = false;
 
   /**
    * Constructor for XrayTestResultUpdater.
@@ -72,24 +70,12 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
   public XrayTestResultUpdater(XrayAuth xrayAuth) {
     this.xrayAuth = xrayAuth;
     this.objectMapper = new ObjectMapper();
-    loadXrayProperties();
+    prop = xrayAuth.getProperties();
     String environmentsStr = prop.getProperty("xray.environments");
     this.environments = Arrays.asList(environmentsStr.split(","));
     this.user = prop.getProperty("xray.user");
   }
 
-  /**
-   * Loads Xray properties from the xray.properties file.
-   *
-   * @throws RuntimeException If an error occurs while loading the properties.
-   */
-  private void loadXrayProperties() {
-    try {
-      prop.load(new FileInputStream("src/test/resources/xray.properties"));
-    } catch (IOException e) {
-      throw new RuntimeException(e);
-    }
-  }
 
   /**
    * Called when a Gherkin scenario is converted.  Currently logs the Xray test key if found.
@@ -131,7 +117,6 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
    */
   public void publishReportsToXray() {
 
-    List<XrayTestResult> tests = new ArrayList<>();
     for (List<XrayTestExecutionResult> results : testCaseXrayTestExecutionResultMap.values()) {
 
       for (XrayTestExecutionResult result : results) {
@@ -172,21 +157,12 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
    * @throws RuntimeException If the properties file or URL is not found.
    */
   private String getXrayReportUrl() {
-    Properties properties = new Properties();
-    try (InputStream input = XrayAuth.class.getClassLoader()
-        .getResourceAsStream("xray.properties")) {
-      if (input == null) {
-        throw new RuntimeException("Unable to find properties file: xray.properties");
-      }
-      properties.load(input);
-      String apiUrl = properties.getProperty("xray.api.report.url");
+      prop = this.xrayAuth.getProperties();
+      String apiUrl = prop.getProperty("xray.api.report.url");
       if (apiUrl == null) {
         throw new RuntimeException("xray.api.url must be defined in the properties file.");
       }
       return apiUrl;
-    } catch (IOException ex) {
-      throw new RuntimeException("Error loading properties file: " + ex.getMessage(), ex);
-    }
   }
 
   /**
@@ -243,20 +219,6 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
   }
 
   /**
-   * Extracts the Xray test key from the test case tags.
-   *
-   * @param testCase The test case.
-   * @param tagName The tag name to look for.
-   * @return The Xray test key, or null if not found.
-   */
-  private String extractXrayTestKey(TestCase testCase, String tagName) {
-    if (testCase instanceof TaggedTestCase taggedTestCase) {
-      return extractXrayTestKey(taggedTestCase.getTags(), tagName);
-    }
-    return null;
-  }
-
-  /**
    * Extracts the Xray test key from a collection of tags.
    *
    * @param tags The collection of tags.
@@ -271,22 +233,13 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
     return xrayKey.orElse(null);
   }
 
-  private String extractTestStatus(TestCase testCase) {
 
-    if (testCase instanceof XrayTestCase) {
-      return ((XrayTestCase) testCase).getTestResult();
-    } else {
-      //TODO: decide default
-      return "PASSED";
-    }
+  public boolean hasTestResults() {
+    return hasResults;
   }
 
-  private Throwable extractFailureReason(TestCase testCase) {
-    if (testCase instanceof XrayTestCase) {
-      return ((XrayTestCase) testCase).getFailureException();
-    } else {
-      return null;
-    }
+  public Object getXrayPayload() {
+    return testCaseXrayTestExecutionResultMap;
   }
 
 
@@ -341,12 +294,14 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
   public void onAfterTestSuite(Collection<? extends TestCase> testCases, ParseTreeListener listener,
       MetadataTestRunResults results, String context) {
     addResults(results.getTestResults());
+    this.hasResults = !this.testCaseXrayTestExecutionResultMap.isEmpty();
   }
 
   @Override
   public void onAfterTestSuite(Collection<? extends TestCase> testCases,
       MetadataTestRunResults results, String context) {
     addResults(results.getTestResults());
+    this.hasResults = !this.testCaseXrayTestExecutionResultMap.isEmpty();
   }
 
   @Override

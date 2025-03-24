@@ -32,6 +32,11 @@ public class XrayAuth {
 
   private static final HttpClient client = HttpClient.newHttpClient();
   Logger logger = Logger.getLogger(this.getClass().getName());
+
+  public Properties getProperties() {
+    return properties;
+  }
+
   private static final Properties properties = new Properties();
   private final String xrayUrl;
   private String authToken;
