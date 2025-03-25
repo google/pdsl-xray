@@ -1,5 +1,8 @@
 package com.pdsl.xray;
 
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import com.pdsl.executors.DefaultPolymorphicDslTestExecutor;
 import com.pdsl.gherkin.DefaultGherkinTestSpecificationFactory;
 import com.pdsl.gherkin.DefaultGherkinTestSpecificationFactoryGenerator;
@@ -11,7 +14,7 @@ import com.pdsl.specifications.FilteredPhrase;
 import com.pdsl.transformers.PolymorphicDslPhraseFilter;
 import com.pdsl.xray.core.XrayAuth;
 import com.pdsl.xray.core.XrayTestResultUpdater;
-import com.pdsl.xray.observers.PickleJarScenarioObserver;
+import com.pdsl.xray.observers.TabularScenarioObserver;
 import java.io.InputStream;
 import java.nio.file.Paths;
 import java.util.List;
@@ -49,7 +52,7 @@ limitations under the License.
  */
 public class XrayIntegrationTest {
 
-  private int totalRunTests = 0;
+
   private static final XrayAuth xrayAuth = XrayAuth.fromPropertiesFile(
       "src/test/resources/xray.properties");
 
@@ -57,23 +60,16 @@ public class XrayIntegrationTest {
   private static final PickleJarFactory PICKLE_JAR_FACTORY = PickleJarFactory.getDefaultPickleJarFactory();
   private static final PolymorphicDslPhraseFilter MY_CUSTOM_PDSL_PHRASE_FILTER = new MyCustomPDSLPhraseFilter();
 
-
   @TestTemplate
   @ExtendWith(IosExtension.class)
   public void iosTest(PdslExecutable executable) {
-
     executable.execute();
-    totalRunTests++;
-    assert (totalRunTests == 1);
   }
 
   @TestTemplate
   @ExtendWith(AndroidExtension.class)
   public void androidTest(PdslExecutable executable) {
-
     executable.execute();
-    totalRunTests++;
-    assert (totalRunTests == 1);
   }
 
   /**
@@ -82,7 +78,7 @@ public class XrayIntegrationTest {
   private static class IosExtension extends PdslGherkinInvocationContextProvider {
 
     private static final DefaultPolymorphicDslTestExecutor traceableTestRunExecutor = new DefaultPolymorphicDslTestExecutor();
-    private static final PickleJarScenarioObserver PICKLE_JAR_SCENARIO_OBSERVER = new PickleJarScenarioObserver();
+    private static final TabularScenarioObserver PICKLE_JAR_SCENARIO_OBSERVER = new TabularScenarioObserver();
 
     @Override
     public Stream<TestTemplateInvocationContext> provideTestTemplateInvocationContexts(
@@ -151,6 +147,11 @@ public class XrayIntegrationTest {
    */
   @AfterAll
   public static void publishReportsToXray() {
+    // Validation: Check if updater has collected results.
+    assertTrue(updater.hasTestResults(), "No test results collected by updater.");
+
+    // Validation: Check if the updater has created a valid Xray payload.
+    assertNotNull(updater.getXrayPayload(), "Xray payload is null.");
 
     updater.publishReportsToXray();
   }
