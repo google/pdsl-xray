@@ -17,9 +17,10 @@ limitations under the License.
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
   <modelVersion>4.0.0</modelVersion>
-  <groupId>org.example</groupId>
+  <groupId>com.google.pdsl</groupId>
   <artifactId>xray_pdsl</artifactId>
-  <version>1.0-SNAPSHOT</version>
+  <version>1.0.0</version>
+  <packaging>jar</packaging>
   <name>xray_pdsl</name>
   <url>http://maven.apache.org</url>
 
@@ -27,12 +28,6 @@ limitations under the License.
     Xray module
     <!--    #TODO: add clear description -->
   </description>
-  <parent>
-    <groupId>org.sonatype.oss</groupId>
-    <artifactId>oss-parent</artifactId>
-    <version>7</version>
-  </parent>
-
 <licenses>
     <license>
       <name>Apache-2.0</name>
@@ -47,6 +42,7 @@ limitations under the License.
     <maven.compiler.source>21</maven.compiler.source>
     <maven.compiler.target>21</maven.compiler.target>
     <mvn.jar.version>3.2.2</mvn.jar.version>
+    <antlr.version>4.9.1</antlr.version>
   </properties>
 
   <dependencies>
@@ -55,12 +51,7 @@ limitations under the License.
       <artifactId>jackson-databind</artifactId>
       <version>2.15.2</version>
     </dependency>
-    <dependency>
-      <groupId>com.google.pdsl</groupId>
-      <artifactId>pdsl</artifactId>
-      <version>1.7.2-SNAPSHOT</version>
-<!--      <scope>test</scope> -->
-    </dependency>
+
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>
@@ -72,5 +63,97 @@ limitations under the License.
       <artifactId>junit-jupiter-engine</artifactId>
       <version>5.9.2</version>
     </dependency>
+    <dependency>
+      <groupId>com.google.pdsl</groupId>
+      <artifactId>pdsl</artifactId>
+      <version>1.7.3</version>
+    </dependency>
+    <dependency>
+      <groupId>org.antlr</groupId>
+      <artifactId>antlr4-runtime</artifactId>
+      <version>${antlr.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.antlr</groupId>
+      <artifactId>antlr4</artifactId>
+      <version>${antlr.version}</version>
+    </dependency>
   </dependencies>
+
+  <distributionManagement>
+    <snapshotRepository>
+      <id>artifact-registry</id>
+      <url>
+        artifactregistry://us-central1-maven.pkg.dev/gfp-p-artifacts-hub-01/ar-maven-experimental
+      </url>
+    </snapshotRepository>
+    <repository>
+      <id>artifact-registry</id>
+      <url>
+        artifactregistry://us-central1-maven.pkg.dev/gfp-p-artifacts-hub-01/ar-maven-experimental
+      </url>
+    </repository>
+  </distributionManagement>
+
+  <repositories>
+  <repository>
+        <id>central</id>
+        <name>Maven Central Repository</name>
+        <url>https://repo1.maven.org/maven2/</url>
+        <layout>default</layout>
+        <snapshots>
+            <enabled>false</enabled>
+        </snapshots>
+    </repository>
+    <repository>
+      <id>artifact-registry</id>
+      <url>
+        artifactregistry://us-central1-maven.pkg.dev/gfp-p-artifacts-hub-01/ar-maven-experimental
+      </url>
+      <releases>
+        <enabled>true</enabled>
+      </releases>
+      <snapshots>
+        <enabled>true</enabled>
+      </snapshots>
+    </repository>
+  </repositories>
+  <build>
+    <sourceDirectory>src/main/java</sourceDirectory>
+    <testSourceDirectory>src/test/java</testSourceDirectory>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+      </plugin>
+    </plugins>
+    <extensions>
+      <extension>
+        <groupId>com.google.cloud.artifactregistry</groupId>
+        <artifactId>artifactregistry-maven-wagon</artifactId>
+        <version>2.2.0</version>
+      </extension>
+    </extensions>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.antlr</groupId>
+          <artifactId>antlr4-maven-plugin</artifactId>
+          <version>${antlr.version}</version>
+          <configuration>
+            <arguments>
+              <argumenent>-visitor</argumenent>
+            </arguments>
+          </configuration>
+          <executions>
+            <execution>
+              <goals>
+                <goal>antlr4</goal>
+              </goals>
+            </execution>
+          </executions>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
 </project>
