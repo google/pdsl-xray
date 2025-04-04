@@ -14,7 +14,6 @@ import com.pdsl.specifications.FilteredPhrase;
 import com.pdsl.transformers.PolymorphicDslPhraseFilter;
 import com.pdsl.xray.core.XrayAuth;
 import com.pdsl.xray.core.XrayTestResultUpdater;
-import com.pdsl.xray.observers.TabularScenarioObserver;
 import java.io.InputStream;
 import java.nio.file.Paths;
 import java.util.List;
@@ -53,13 +52,21 @@ limitations under the License.
 public class XrayIntegrationTest {
 
 
-  private static final XrayAuth xrayAuth = XrayAuth.fromPropertiesFile(
-      "src/test/resources/xray.properties");
+  private static final XrayTestResultUpdater updater = new XrayTestResultUpdater(
+          XrayAuth.fromPropertiesFile("src/test/resources/xray.properties"));
 
-  private static final XrayTestResultUpdater updater = new XrayTestResultUpdater(xrayAuth);
-  private static final PickleJarFactory PICKLE_JAR_FACTORY = PickleJarFactory.getDefaultPickleJarFactory();
+  private static final DefaultPolymorphicDslTestExecutor traceableTestRunExecutor = new DefaultPolymorphicDslTestExecutor();
   private static final PolymorphicDslPhraseFilter MY_CUSTOM_PDSL_PHRASE_FILTER = new MyCustomPDSLPhraseFilter();
+  private static final PickleJarFactory PICKLE_JAR_FACTORY = init();
 
+  private static PickleJarFactory init() {
+
+    traceableTestRunExecutor.registerObserver(updater);
+
+    PickleJarFactory PICKLE_JAR_FACTORY = PickleJarFactory.getDefaultPickleJarFactory();
+    PICKLE_JAR_FACTORY.registerObserver(updater);
+    return PICKLE_JAR_FACTORY;
+  }
   @TestTemplate
   @ExtendWith(IosExtension.class)
   public void iosTest(PdslExecutable executable) {
@@ -72,73 +79,44 @@ public class XrayIntegrationTest {
     executable.execute();
   }
 
+  private static PdslConfigParameter createParameterWithTag(String tag) {
+    return PdslConfigParameter.createGherkinPdslConfig(
+                    List.of(
+                            new PdslTestParameter.Builder(parseTreeListenerSupplier,
+                                    AllGrammarsLexer.class, AllGrammarsParser.class)
+                                    .withTagExpression(tag)
+                                    .withIncludedResources(new String[]{"XrayIntegration.feature", "PdslXrayTabular.feature"})
+                                    .build()
+                    )
+            )
+            .withApplicationName("Polymorphic DSL Framework")
+            .withContext("User Acceptance Test")
+            .withResourceRoot(Paths.get("src/test/resources/features").toUri())
+            .withRecognizerRule("polymorphicDslAllRules")
+            .withTestRunExecutor(() -> traceableTestRunExecutor)
+            .withTestSpecificationFactoryGenerator(
+                    () -> new DefaultGherkinTestSpecificationFactoryGenerator(
+                            new DefaultGherkinTestSpecificationFactory.Builder((MY_CUSTOM_PDSL_PHRASE_FILTER))
+                                    .withPickleJarFactory(PICKLE_JAR_FACTORY)))
+            .build();
+  }
   /**
    * A supplier that provides an instance of AllGrammarsParserBaseListener.
    */
   private static class IosExtension extends PdslGherkinInvocationContextProvider {
 
-    private static final DefaultPolymorphicDslTestExecutor traceableTestRunExecutor = new DefaultPolymorphicDslTestExecutor();
-    private static final TabularScenarioObserver PICKLE_JAR_SCENARIO_OBSERVER = new TabularScenarioObserver();
-
     @Override
-    public Stream<TestTemplateInvocationContext> provideTestTemplateInvocationContexts(
-        ExtensionContext context) {
-      traceableTestRunExecutor.registerObserver(updater);
-      PICKLE_JAR_FACTORY.registerObserver(PICKLE_JAR_SCENARIO_OBSERVER);
-      return getInvocationContext(PdslConfigParameter.createGherkinPdslConfig(
-              List.of(
-                  new PdslTestParameter.Builder(parseTreeListenerSupplier,
-                      AllGrammarsLexer.class, AllGrammarsParser.class)
-                      .withTagExpression("@ios")
-                      .withIncludedResources(new String[]{"xray_integration.feature"})
-                      .build()
-              )
-          )
-          .withApplicationName("Polymorphic DSL Framework")
-          .withContext("User Acceptance Test")
-          .withResourceRoot(Paths.get("src/test/resources/features").toUri())
-          .withRecognizerRule("polymorphicDslAllRules")
-          .withTestRunExecutor(() -> traceableTestRunExecutor)
-          .withTestSpecificationFactoryGenerator(
-              () -> new DefaultGherkinTestSpecificationFactoryGenerator(
-                  new DefaultGherkinTestSpecificationFactory.Builder((MY_CUSTOM_PDSL_PHRASE_FILTER))
-                      .withPickleJarFactory(PICKLE_JAR_FACTORY)))
-          .build())
-          .stream();
+    public Stream<TestTemplateInvocationContext> provideTestTemplateInvocationContexts(ExtensionContext context) {
+      return getInvocationContext(createParameterWithTag("@ios")).stream();
     }
   }
 
   private static final Supplier<ParseTreeListener> parseTreeListenerSupplier = AllGrammarsParserBaseListener::new;
 
   private static class AndroidExtension extends PdslGherkinInvocationContextProvider {
-
-    private static final DefaultPolymorphicDslTestExecutor traceableTestRunExecutor = new DefaultPolymorphicDslTestExecutor();
-
-
     @Override
-    public Stream<TestTemplateInvocationContext> provideTestTemplateInvocationContexts(
-        ExtensionContext context) {
-      traceableTestRunExecutor.registerObserver(updater);
-      return getInvocationContext(PdslConfigParameter.createGherkinPdslConfig(
-              List.of(
-                  new PdslTestParameter.Builder(parseTreeListenerSupplier,
-                      AllGrammarsLexer.class, AllGrammarsParser.class)
-                      .withTagExpression("@android")
-                      .withIncludedResources(new String[]{"xray_integration.feature"})
-                      .build()
-              )
-          )
-          .withApplicationName("Polymorphic DSL Framework")
-          .withContext("User Acceptance Test")
-          .withResourceRoot(Paths.get("src/test/resources/features").toUri())
-          .withRecognizerRule("polymorphicDslAllRules")
-          .withTestRunExecutor(() -> traceableTestRunExecutor)
-          .withTestSpecificationFactoryGenerator(
-              () -> new DefaultGherkinTestSpecificationFactoryGenerator(
-                  new DefaultGherkinTestSpecificationFactory.Builder((MY_CUSTOM_PDSL_PHRASE_FILTER))
-                      .withPickleJarFactory(PICKLE_JAR_FACTORY)))
-          .build())
-          .stream();
+    public Stream<TestTemplateInvocationContext> provideTestTemplateInvocationContexts(ExtensionContext context) {
+      return getInvocationContext(createParameterWithTag("@android")).stream();
     }
   }
 
@@ -156,22 +134,11 @@ public class XrayIntegrationTest {
     updater.publishReportsToXray();
   }
 
-  public static class MyCustomPDSLPhraseFilter implements PolymorphicDslPhraseFilter {
+  private static class MyCustomPDSLPhraseFilter implements PolymorphicDslPhraseFilter {
 
-    /**
-     * Filters the given list of phrases based on custom logic.
-     *
-     * @param testInput A list of input streams for the test.
-     * @return An optional list of filtered phrases, or Optional.empty() if no filtering is applied.
-     */
     @Override
     public Optional<List<FilteredPhrase>> filterPhrases(List<InputStream> testInput) {
       return Optional.empty();
     }
   }
-
-
 }
-
-
-
