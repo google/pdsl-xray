@@ -10,10 +10,10 @@ Feature: Tabular Parameters
   @ios
     Examples:
       |xray-test-plan | xray-test-case |  xray-test-platform  | xray-test-env |
-      | GFENG-45678   | GFENG-45539    |  ios                 | PRD           |
-      | GFENG-56789   | GFENG-46453    |  ios                 | PRD           |
+      | GFENG-43264   | GFENG-45539    |  ios                 | PRD           |
+      | GFENG-43264   | GFENG-46453    |  ios                 | PRD           |
 
   @android
     Examples:
       |xray-test-plan | xray-test-case |  xray-test-platform  | xray-test-env |
-      | GFENG-12345   | GFENG-46453    |  android             | PRD           |
+      | GFENG-43264   | GFENG-46453    |  android             | PRD           |
