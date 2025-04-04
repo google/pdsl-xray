@@ -1,4 +1,4 @@
-package com.pdsl.xray.core;
+package com.google.pdsl.xray.core;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pdsl.executors.ExecutorObserver;
@@ -8,12 +8,11 @@ import com.pdsl.reports.TestResult;
 import com.pdsl.specifications.Phrase;
 import com.pdsl.testcases.TaggedTestCase;
 import com.pdsl.testcases.TestCase;
-import com.pdsl.xray.models.Info;
-import com.pdsl.xray.models.XrayTestExecutionResult;
-import com.pdsl.xray.models.XrayTestResult;
+import com.google.pdsl.xray.models.Info;
+import com.google.pdsl.xray.models.XrayTestExecutionResult;
+import com.google.pdsl.xray.models.XrayTestResult;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -50,10 +49,10 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
 
     private final XrayAuth xrayAuth;
     private final ObjectMapper objectMapper; // Jackson ObjectMapper for JSON serialization
-    private final Map<TestCase, List<XrayTestExecutionResult>> testCaseXrayTestExecutionResultMap = new HashMap<>();
+    private final Map<TestCase, Set<XrayTestExecutionResult>> testCaseXrayTestExecutionResultMap = new HashMap<>();
     private final Logger logger = Logger.getLogger(this.getClass().getName());
     private Properties prop;
-    private final List<String> environments;
+    private final Set<String> environments;
     private final String user;
     private boolean hasResults = false;
 
@@ -67,7 +66,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         this.objectMapper = new ObjectMapper();
         prop = xrayAuth.getProperties();
         String environmentsStr = prop.getProperty("xray.environments");
-        this.environments = Arrays.asList(environmentsStr.split(","));
+        this.environments = new HashSet<>(Arrays.asList(environmentsStr.split(",")));
         this.user = prop.getProperty("xray.user");
     }
 
@@ -119,17 +118,17 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
      */
     public void publishReportsToXray() {
         // Consolodate results so that we don't create one execution per test case
-        Map<Info, List<XrayTestResult>> info2Results = new HashMap<>();
+        Map<Info, Set<XrayTestResult>> info2Results = new HashMap<>();
         testCaseXrayTestExecutionResultMap.values().stream()
                 .flatMap(Collection::stream)
                 .forEach(r -> {
-                    List<XrayTestResult> results = info2Results.computeIfAbsent(r.info(), k -> new ArrayList<>());
+                    Set<XrayTestResult> results = info2Results.computeIfAbsent(r.info(), k -> new HashSet<>());
                     results.addAll(r.tests());
                 });
 
 
         try (HttpClient client = HttpClient.newHttpClient()) {
-            for (Map.Entry<Info, List<XrayTestResult>> entry : info2Results.entrySet()) {
+            for (Map.Entry<Info, Set<XrayTestResult>> entry : info2Results.entrySet()) {
                 String requestBody = objectMapper.writeValueAsString(new XrayTestExecutionResult(entry.getKey(), entry.getValue()));
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(getXrayReportUrl()))
@@ -191,21 +190,21 @@ public void addResults(Collection<TestResult> results) {
                     .collect(Collectors.toUnmodifiableSet());
 
             List<Info> listOfInfo = testPlanTags.stream().map(tag -> new Info(
-                    testCase.getTestTitle(),
-                    String.join("", taggedTestCase.getUnfilteredPhraseBody()),
+                    "", // testCase.getTestTitle(),
+                    "", //String.join("", taggedTestCase.getUnfilteredPhraseBody()),
                     tag,
-                    envTags,
+                    envTags.isEmpty() ? environments : envTags,
                     user
             )).toList();
 
-            List<XrayTestResult> xrayTestResults = caseTags.stream().map(t -> new XrayTestResult(
+            Set<XrayTestResult> xrayTestResults = caseTags.stream().map(t -> new XrayTestResult(
                     t, result.getStatus().toString()
-            )).collect(Collectors.toList());
+            )).collect(Collectors.toSet());
 
-            List<XrayTestExecutionResult> resultsList = testCaseXrayTestExecutionResultMap.computeIfAbsent(
-                    testCase, k -> new ArrayList<>());
+            Set<XrayTestExecutionResult> resultsSet = testCaseXrayTestExecutionResultMap.computeIfAbsent(
+                    testCase, k -> new HashSet<>());
             for (Info info : listOfInfo) {
-                resultsList.add(new XrayTestExecutionResult(info, xrayTestResults));
+                resultsSet.add(new XrayTestExecutionResult(info, xrayTestResults));
             }
         }
     }

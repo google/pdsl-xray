@@ -1,4 +1,4 @@
-package com.pdsl.xray.core;
+package com.google.pdsl.xray.core;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

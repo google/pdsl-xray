@@ -1,6 +1,6 @@
-package com.pdsl.xray.models;
+package com.google.pdsl.xray.models;
 
-import java.util.List;
+import java.util.Set;
 /*
 Copyright 2025 Google LLC
 
@@ -20,6 +20,6 @@ limitations under the License.
 /**
  * Wrapper for the DTO for request, to update the Xray API
  */
-public record XrayTestExecutionResult(Info info, List<XrayTestResult> tests) {
+public record XrayTestExecutionResult(Info info, Set<XrayTestResult> tests) {
 
 }

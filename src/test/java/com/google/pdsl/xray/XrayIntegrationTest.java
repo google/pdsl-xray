@@ -1,4 +1,4 @@
-package com.pdsl.xray;
+package com.google.pdsl.xray;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -12,8 +12,8 @@ import com.pdsl.grammars.AllGrammarsParser;
 import com.pdsl.grammars.AllGrammarsParserBaseListener;
 import com.pdsl.specifications.FilteredPhrase;
 import com.pdsl.transformers.PolymorphicDslPhraseFilter;
-import com.pdsl.xray.core.XrayAuth;
-import com.pdsl.xray.core.XrayTestResultUpdater;
+import com.google.pdsl.xray.core.XrayAuth;
+import com.google.pdsl.xray.core.XrayTestResultUpdater;
 import java.io.InputStream;
 import java.nio.file.Paths;
 import java.util.List;
@@ -58,6 +58,7 @@ public class XrayIntegrationTest {
   private static final DefaultPolymorphicDslTestExecutor traceableTestRunExecutor = new DefaultPolymorphicDslTestExecutor();
   private static final PolymorphicDslPhraseFilter MY_CUSTOM_PDSL_PHRASE_FILTER = new MyCustomPDSLPhraseFilter();
   private static final PickleJarFactory PICKLE_JAR_FACTORY = init();
+  private static final Supplier<ParseTreeListener> parseTreeListenerSupplier = AllGrammarsParserBaseListener::new;
 
   private static PickleJarFactory init() {
 
@@ -85,7 +86,7 @@ public class XrayIntegrationTest {
                             new PdslTestParameter.Builder(parseTreeListenerSupplier,
                                     AllGrammarsLexer.class, AllGrammarsParser.class)
                                     .withTagExpression(tag)
-                                    .withIncludedResources(new String[]{"XrayIntegration.feature", "PdslXrayTabular.feature"})
+                                    .withIncludedResources(new String[]{"XRayIntegration.feature", "PdslXrayTabular.feature"})
                                     .build()
                     )
             )
@@ -111,7 +112,6 @@ public class XrayIntegrationTest {
     }
   }
 
-  private static final Supplier<ParseTreeListener> parseTreeListenerSupplier = AllGrammarsParserBaseListener::new;
 
   private static class AndroidExtension extends PdslGherkinInvocationContextProvider {
     @Override
@@ -127,15 +127,12 @@ public class XrayIntegrationTest {
   public static void publishReportsToXray() {
     // Validation: Check if updater has collected results.
     assertTrue(updater.hasTestResults(), "No test results collected by updater.");
-
     // Validation: Check if the updater has created a valid Xray payload.
     assertNotNull(updater.getXrayPayload(), "Xray payload is null.");
-
     updater.publishReportsToXray();
   }
 
   private static class MyCustomPDSLPhraseFilter implements PolymorphicDslPhraseFilter {
-
     @Override
     public Optional<List<FilteredPhrase>> filterPhrases(List<InputStream> testInput) {
       return Optional.empty();

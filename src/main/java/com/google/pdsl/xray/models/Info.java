@@ -1,4 +1,4 @@
-package com.pdsl.xray.models;
+package com.google.pdsl.xray.models;
 
 import java.util.List;
 import java.util.Set;
