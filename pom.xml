@@ -19,14 +19,13 @@ limitations under the License.
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.google.pdsl</groupId>
   <artifactId>xray_pdsl</artifactId>
-  <version>1.0.0</version>
+  <version>1.0.0-SNAPSHOT</version>
   <packaging>jar</packaging>
   <name>xray_pdsl</name>
   <url>http://maven.apache.org</url>
 
   <description>
-    Xray module
-    <!--    #TODO: add clear description -->
+	  Plugin to integrate the XRAY test management system with the Polymorphic DSL test framework.
   </description>
 <licenses>
     <license>
