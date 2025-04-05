@@ -55,19 +55,23 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
     private final Set<String> environments;
     private final String user;
     private boolean hasResults = false;
+    private final String description;
+    private final String title;
 
     /**
      * Constructor for XrayTestResultUpdater.
      *
      * @param xrayAuth The Xray authentication object.
      */
-    public XrayTestResultUpdater(XrayAuth xrayAuth) {
+    public XrayTestResultUpdater(XrayAuth xrayAuth, String title, String description) {
         this.xrayAuth = xrayAuth;
         this.objectMapper = new ObjectMapper();
         prop = xrayAuth.getProperties();
         String environmentsStr = prop.getProperty("xray.environments");
         this.environments = new HashSet<>(Arrays.asList(environmentsStr.split(",")));
         this.user = prop.getProperty("xray.user");
+        this.description = description;
+        this.title = title;
     }
 
 
@@ -190,8 +194,8 @@ public void addResults(Collection<TestResult> results) {
                     .collect(Collectors.toUnmodifiableSet());
 
             List<Info> listOfInfo = testPlanTags.stream().map(tag -> new Info(
-                    "", // testCase.getTestTitle(),
-                    "", //String.join("", taggedTestCase.getUnfilteredPhraseBody()),
+                    title, // testCase.getTestTitle(),
+                    description, //String.join("", taggedTestCase.getUnfilteredPhraseBody()),
                     tag,
                     envTags.isEmpty() ? environments : envTags,
                     user

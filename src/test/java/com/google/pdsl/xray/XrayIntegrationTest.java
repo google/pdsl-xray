@@ -53,7 +53,14 @@ public class XrayIntegrationTest {
 
 
   private static final XrayTestResultUpdater updater = new XrayTestResultUpdater(
-          XrayAuth.fromPropertiesFile("src/test/resources/xray.properties"));
+          XrayAuth.fromPropertiesFile("src/test/resources/xray.properties"),
+          "PDSL-XRAY Plugin E2E Tests",
+          """
+                  End to end tests for the pdsl-xray plugin.
+                  These tests support the gherkin protocol both through special fields in 
+                  the examples table or tags directly above scenarios:
+                  |xray-test-plan | xray-test-case |  xray-test-platform  | xray-test-env |
+                  """);
 
   private static final DefaultPolymorphicDslTestExecutor traceableTestRunExecutor = new DefaultPolymorphicDslTestExecutor();
   private static final PolymorphicDslPhraseFilter MY_CUSTOM_PDSL_PHRASE_FILTER = new MyCustomPDSLPhraseFilter();
