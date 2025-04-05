@@ -1,6 +1,8 @@
-package com.pdsl.xray.models;
+package com.google.pdsl.xray.models;
 
 import java.util.List;
+import java.util.Set;
+
 /*
 Copyright 2025 Google LLC
 
@@ -17,6 +19,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 public record Info(String summary, String description, String testPlanKey,
-                   List<String> testEnvironments, String user) {
+                   Set<String> testEnvironments, String user) {
 
 }
