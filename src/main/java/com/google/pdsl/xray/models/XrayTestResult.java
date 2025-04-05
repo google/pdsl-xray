@@ -1,4 +1,4 @@
-package com.pdsl.xray.models;
+package com.google.pdsl.xray.models;
 /*
 Copyright 2025 Google LLC
 
