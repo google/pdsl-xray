@@ -58,7 +58,7 @@ limitations under the License.
     <dependency>
       <groupId>com.google.pdsl</groupId>
       <artifactId>pdsl</artifactId>
-      <version>1.7.2-SNAPSHOT</version>
+      <version>1.7.8</version>
 <!--      <scope>test</scope> -->
     </dependency>
     <dependency>
