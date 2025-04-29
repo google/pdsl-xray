@@ -31,7 +31,6 @@ limitations under the License.
     <license>
       <name>Apache-2.0</name>
       <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
-      <distribution>repo</distribution>
       <comments>A business-friendly OSS license</comments>
       </license>
   </licenses>
@@ -43,13 +42,36 @@ limitations under the License.
     <mvn.jar.version>3.2.2</mvn.jar.version>
     <antlr.version>4.9.1</antlr.version>
   </properties>
-
+	<distributionManagement>
+			<snapshotRepository>
+				<id>artifact-registry</id>
+				<url>
+					artifactregistry://us-central1-maven.pkg.dev/gfp-p-artifacts-hub-01/ar-maven-experimental
+				</url>
+			</snapshotRepository>
+			<repository>
+				<id>artifact-registry</id>
+				<url>
+					artifactregistry://us-central1-maven.pkg.dev/gfp-p-artifacts-hub-01/ar-maven-experimental
+				</url>
+			</repository>
+	</distributionManagement>
   <dependencies>
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-databind</artifactId>
       <version>2.15.2</version>
     </dependency>
+      <dependency>
+          <groupId>org.apache.httpcomponents</groupId>
+          <artifactId>httpmime</artifactId>
+          <version>4.5.14</version>
+      </dependency>
+      <dependency>
+          <groupId>org.apache.httpcomponents.core5</groupId>
+          <artifactId>httpcore5</artifactId>
+          <version>5.3.4</version>
+      </dependency>
 
     <dependency>
       <groupId>org.junit.jupiter</groupId>
@@ -79,21 +101,7 @@ limitations under the License.
     </dependency>
   </dependencies>
 
-  <distributionManagement>
-    <snapshotRepository>
-      <id>artifact-registry</id>
-      <url>
-        artifactregistry://us-central1-maven.pkg.dev/gfp-p-artifacts-hub-01/ar-maven-experimental
-      </url>
-    </snapshotRepository>
-    <repository>
-      <id>artifact-registry</id>
-      <url>
-        artifactregistry://us-central1-maven.pkg.dev/gfp-p-artifacts-hub-01/ar-maven-experimental
-      </url>
-    </repository>
-  </distributionManagement>
-
+  
   <repositories>
   <repository>
         <id>central</id>
@@ -117,7 +125,7 @@ limitations under the License.
       </snapshots>
     </repository>
   </repositories>
-  <build>
+	  <build>
     <sourceDirectory>src/main/java</sourceDirectory>
     <testSourceDirectory>src/test/java</testSourceDirectory>
     <plugins>
@@ -184,3 +192,4 @@ limitations under the License.
     </pluginManagement>
   </build>
 </project>
+

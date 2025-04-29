@@ -20,6 +20,4 @@ limitations under the License.
 /**
  * Wrapper for the DTO for request, to update the Xray API
  */
-public record XrayTestExecutionResult(Info info, Set<XrayTestResult> tests) {
-
-}
+public record XrayTestExecutionResult(Info info, Set<XrayTestResult> tests) {}
