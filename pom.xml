@@ -19,7 +19,7 @@ limitations under the License.
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.google.pdsl</groupId>
   <artifactId>xray-pdsl</artifactId>
-  <version>1.0.0-SNAPSHOT</version>
+  <version>1.0.1-SNAPSHOT</version>
   <packaging>jar</packaging>
   <name>xray_pdsl</name>
   <url>http://maven.apache.org</url>
