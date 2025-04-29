@@ -1,6 +1,5 @@
 package com.google.pdsl.xray.models;
 
-import java.util.List;
 import java.util.Set;
 
 /*
@@ -19,6 +18,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 public record Info(String summary, String description, String testPlanKey,
-                   Set<String> testEnvironments, String user) {
+                   Set<String> testEnvironments) {
 
 }

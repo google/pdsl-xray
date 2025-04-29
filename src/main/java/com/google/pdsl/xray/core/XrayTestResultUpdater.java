@@ -1,6 +1,9 @@
 package com.google.pdsl.xray.core;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.pdsl.xray.models.Info;
+import com.google.pdsl.xray.models.XrayTestExecutionResult;
+import com.google.pdsl.xray.models.XrayTestResult;
 import com.pdsl.executors.ExecutorObserver;
 import com.pdsl.gherkin.GherkinObserver;
 import com.pdsl.reports.MetadataTestRunResults;
@@ -8,22 +11,27 @@ import com.pdsl.reports.TestResult;
 import com.pdsl.specifications.Phrase;
 import com.pdsl.testcases.TaggedTestCase;
 import com.pdsl.testcases.TestCase;
-import com.google.pdsl.xray.models.Info;
-import com.google.pdsl.xray.models.XrayTestExecutionResult;
-import com.google.pdsl.xray.models.XrayTestResult;
-
-import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.util.*;
-import java.util.logging.Logger;
-import java.util.stream.Collectors;
-
 import org.antlr.v4.runtime.tree.ParseTreeListener;
 import org.antlr.v4.runtime.tree.ParseTreeVisitor;
 import org.antlr.v4.runtime.tree.ParseTreeWalker;
+import org.apache.commons.codec.Charsets;
+import org.apache.http.HttpHeaders;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.entity.ContentType;
+import org.apache.http.entity.mime.MultipartEntityBuilder;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.*;
+import java.util.function.Supplier;
+import java.util.logging.Logger;
+import java.util.stream.Collectors;
 
 /*
 Copyright 2025 Google LLC
@@ -53,17 +61,42 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
     private final Logger logger = Logger.getLogger(this.getClass().getName());
     private Properties prop;
     private final Set<String> environments;
-    private final String user;
     private boolean hasResults = false;
     private final String description;
     private final String title;
+    private final Supplier<Map<Object, Object>> fieldSupplier;
+    private final Path tempDirectory;
 
-    /**
-     * Constructor for XrayTestResultUpdater.
-     *
-     * @param xrayAuth The Xray authentication object.
-     */
-    public XrayTestResultUpdater(XrayAuth xrayAuth, String title, String description) {
+    private void validateTempDirectory(Path tempDirectoryPath) {
+        if (!tempDirectoryPath.toFile().isDirectory()) {
+            throw new IllegalArgumentException(String.format("""
+        A directory to put temporary files is required to create the multipart
+        request to the XRAY API. The provided parameter is not a directory:
+        %s
+        
+        To use the operating systems standard temp location, you can use this as a parameter:
+          Files.createTempDir()
+        
+        Be aware that in a CI/CD pipeline this script will need to have write access to this location.
+        """, tempDirectoryPath.toUri()));
+        }
+        if (!tempDirectoryPath.toFile().canWrite()) {
+            throw new IllegalArgumentException(String.format("""
+        A directory to put temporary files is required to create the multipart
+        request to the XRAY API. The provided  directory is not writeable by this program in this environment:
+        %s
+        
+        To use the operating systems standard temp location, you can use this as a parameter:
+          Files.createTempDir()
+        
+        Be aware that in a CI/CD pipeline this script will need to have write access to this location.
+        """, tempDirectoryPath.toUri()));
+        }
+    }
+
+    public XrayTestResultUpdater(XrayAuth xrayAuth, String title, String description,
+                                 Supplier<Map<Object, Object>> fieldSupplier, Path tempDirectoryPath) {
+        validateTempDirectory(tempDirectoryPath);
         this.xrayAuth = xrayAuth;
         this.objectMapper = new ObjectMapper();
         prop = xrayAuth.getProperties();
@@ -72,6 +105,8 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         this.user = prop.getProperty("xray.user");
         this.description = description;
         this.title = title;
+        this.fieldSupplier = fieldSupplier;
+        this.tempDirectory = tempDirectoryPath;
     }
 
 
@@ -120,7 +155,18 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
     /**
      * Publishes the test execution reports to Xray.
      */
-    public void publishReportsToXray() {
+    public List<org.apache.http.HttpResponse> publishReportsToXray() {
+        List<org.apache.http.HttpResponse> responses = new ArrayList<>();
+        boolean debugging = false;
+        if (debugging) {
+            System.setProperty("org.apache.commons.logging.Log", "org.apache.commons.logging.impl.SimpleLog");
+            System.setProperty("org.apache.commons.logging.simplelog.showdatetime", "true");
+            System.setProperty("org.apache.commons.logging.simplelog.log.org.apache.http.wire", "DEBUG");
+            System.setProperty("org.apache.commons.logging.simplelog.log.org.apache.http.impl.conn", "DEBUG");
+            System.setProperty("org.apache.commons.logging.simplelog.log.org.apache.http.impl.client", "DEBUG");
+            System.setProperty("org.apache.commons.logging.simplelog.log.org.apache.http.client", "DEBUG");
+            System.setProperty("org.apache.commons.logging.simplelog.log.org.apache.http", "DEBUG");
+        }
         // Consolodate results so that we don't create one execution per test case
         Map<Info, Set<XrayTestResult>> info2Results = new HashMap<>();
         testCaseXrayTestExecutionResultMap.values().stream()
@@ -129,34 +175,57 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
                     Set<XrayTestResult> results = info2Results.computeIfAbsent(r.info(), k -> new HashSet<>());
                     results.addAll(r.tests());
                 });
+        try {
+        Path info = Files.writeString(tempDirectory.resolve(String.format("info-%s.json", UUID.randomUUID())),
+                objectMapper.writeValueAsString(fieldSupplier.get()), Charsets.UTF_8,
+                StandardOpenOption.CREATE_NEW);
+        info.toFile().deleteOnExit();
+        for (Map.Entry<Info, Set<XrayTestResult>> entry : info2Results.entrySet()) {
 
+            String requestBody = objectMapper.writeValueAsString(new XrayTestExecutionResult(entry.getKey(), entry.getValue()));
 
-        try (HttpClient client = HttpClient.newHttpClient()) {
-            for (Map.Entry<Info, Set<XrayTestResult>> entry : info2Results.entrySet()) {
-                String requestBody = objectMapper.writeValueAsString(new XrayTestExecutionResult(entry.getKey(), entry.getValue()));
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(getXrayReportUrl()))
-                        .header("Authorization", "Bearer " + xrayAuth.getAuthToken())
-                        .header("Content-Type", "application/json")
-                        .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                        .build();
+            // Convert the request to files as per the xray API specification
+            Path results = Files.writeString(tempDirectory.resolve(Path.of(String.format("results-%s.json", UUID.randomUUID()))),
+                    requestBody, Charsets.UTF_8,
+                    StandardOpenOption.CREATE_NEW);
+            results.toFile().deleteOnExit();
 
-                HttpResponse<String> response = client.send(request,
-                        HttpResponse.BodyHandlers.ofString());
+            HttpPost post = new HttpPost(getXrayReportUrl());
+            post.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + xrayAuth.getAuthToken());
+            post.addHeader(HttpHeaders.CONTENT_TYPE, String.format("%s; boundary=%s",
+                    ContentType.MULTIPART_FORM_DATA.getMimeType(),
+                    "X-PDSL-XRAY-PLUGIN-BOUNDARY"));
+            post.addHeader(HttpHeaders.ACCEPT, "*/*");
+            post.addHeader(HttpHeaders.ACCEPT_ENCODING, "*/*");
 
-                if (response.statusCode() >= 200 && response.statusCode() < 300) {
+            post.setEntity(MultipartEntityBuilder.create()
+                            .addBinaryBody("results", results.toFile(), ContentType.APPLICATION_JSON, results.getFileName().toString())
+                            .addBinaryBody("info", info.toFile(), ContentType.APPLICATION_JSON, info.getFileName().toString())
+                            .setLaxMode()
+                            .setBoundary("X-PDSL-XRAY-PLUGIN-BOUNDARY")
+                    .setCharset(StandardCharsets.UTF_8)
+                    .build());
+            try (CloseableHttpClient client = HttpClients.createDefault();
+                 CloseableHttpResponse response = client
+                         .execute(post)) {
+                responses.add(response);
+                final int statusCode = response.getStatusLine().getStatusCode();
+                if (statusCode >= 200 && statusCode < 300) {
                     logger.info(String.format("Xray test execution results imported successfully\n%s%n",
-                            response.body()));
+                            new String(response.getEntity().getContent().readAllBytes())));
                 } else {
-                    logger.severe(String.format("Failed to import Xray test execution results: %d - %s%n",
-                            response.statusCode(), response.body()));
+                    logger.severe(String.format("Failed to import Xray test execution results: %s - %s%n",
+                            response.getStatusLine(), new String(response.getEntity().getContent().readAllBytes())));
                 }
-
             }
-        } catch (IOException | InterruptedException e) {
-            System.err.printf("Error importing Xray test execution results: %s%n", e.getMessage());
+            @SuppressWarnings("unused") boolean unused = results.toFile().delete();
         }
+        @SuppressWarnings("unused") boolean unused = info.toFile().delete();
         testCaseXrayTestExecutionResultMap.clear();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        return responses;
     }
 
 
@@ -197,8 +266,7 @@ public void addResults(Collection<TestResult> results) {
                     title, // testCase.getTestTitle(),
                     description, //String.join("", taggedTestCase.getUnfilteredPhraseBody()),
                     tag,
-                    envTags.isEmpty() ? environments : envTags,
-                    user
+                    envTags.isEmpty() ? environments : envTags
             )).toList();
 
             Set<XrayTestResult> xrayTestResults = caseTags.stream().map(t -> new XrayTestResult(
@@ -231,23 +299,8 @@ private static List<String> extractTags(Collection<String> tags, String prefix) 
             .collect(Collectors.toList());
 }
 
-/**
- * Extracts the Xray test key from a collection of tags.
- *
- * @param tags    The collection of tags.
- * @param tagName The tag name to look for.
- * @return The Xray test key, or null if not found.
- */
-private String extractXrayTestKey(Collection<String> tags, String tagName) {
-    Optional<String> xrayKey = tags.stream()
-            .filter(tag -> tag.startsWith(tagName))
-            .map(tag -> tag.substring(tagName.length()))
-            .findFirst();
-    return xrayKey.orElse(null);
-}
 
-
-public boolean hasTestResults() {
+    public boolean hasTestResults() {
     return hasResults;
 }
 
