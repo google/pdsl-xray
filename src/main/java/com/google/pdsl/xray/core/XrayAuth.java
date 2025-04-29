@@ -9,7 +9,6 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.Properties;
-import java.util.logging.Logger;
 /*
 Copyright 2025 Google LLC
 
@@ -31,7 +30,6 @@ limitations under the License.
 public class XrayAuth {
 
   private static final HttpClient client = HttpClient.newHttpClient();
-  Logger logger = Logger.getLogger(this.getClass().getName());
 
   public Properties getProperties() {
     return properties;
@@ -40,7 +38,6 @@ public class XrayAuth {
   private static final Properties properties = new Properties();
   private final String xrayUrl;
   private String authToken;
-  private long tokenExpirationTime;// Currently unused, but could be implemented for token expiry
   private final String clientId;
   private final String clientSecret;
 

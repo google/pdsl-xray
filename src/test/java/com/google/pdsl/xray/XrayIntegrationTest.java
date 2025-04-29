@@ -1,8 +1,7 @@
 package com.google.pdsl.xray;
 
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
+import com.google.pdsl.xray.core.XrayAuth;
+import com.google.pdsl.xray.core.XrayTestResultUpdater;
 import com.pdsl.executors.DefaultPolymorphicDslTestExecutor;
 import com.pdsl.gherkin.DefaultGherkinTestSpecificationFactory;
 import com.pdsl.gherkin.DefaultGherkinTestSpecificationFactoryGenerator;
@@ -12,15 +11,8 @@ import com.pdsl.grammars.AllGrammarsParser;
 import com.pdsl.grammars.AllGrammarsParserBaseListener;
 import com.pdsl.specifications.FilteredPhrase;
 import com.pdsl.transformers.PolymorphicDslPhraseFilter;
-import com.google.pdsl.xray.core.XrayAuth;
-import com.google.pdsl.xray.core.XrayTestResultUpdater;
-import java.io.InputStream;
-import java.nio.file.Paths;
-import java.util.List;
-import java.util.Optional;
-import java.util.function.Supplier;
-import java.util.stream.Stream;
 import org.antlr.v4.runtime.tree.ParseTreeListener;
+import org.apache.http.HttpResponse;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.TestTemplate;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -30,6 +22,18 @@ import org.junit.jupiter.engine.descriptor.PdslConfigParameter;
 import org.junit.jupiter.engine.descriptor.PdslExecutable;
 import org.junit.jupiter.engine.descriptor.PdslGherkinInvocationContextProvider;
 import org.junit.jupiter.engine.descriptor.PdslTestParameter;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.function.Supplier;
+import java.util.stream.Stream;
+
+import static org.junit.jupiter.api.Assertions.*;
 /*
 Copyright 2025 Google LLC
 
@@ -51,16 +55,35 @@ limitations under the License.
  */
 public class XrayIntegrationTest {
 
-
+  private static final Path tempDirectory = initTempDir();
+  private static Path initTempDir() {
+    try {
+      return Files.createTempDirectory("xray");
+    } catch (IOException e) {
+      throw new IllegalStateException("Could not create a temp directory!", e);
+    }
+  }
+  private static final XrayAuth xrayAuth =  XrayAuth.fromPropertiesFile("src/test/resources/xray.properties");
   private static final XrayTestResultUpdater updater = new XrayTestResultUpdater(
-          XrayAuth.fromPropertiesFile("src/test/resources/xray.properties"),
+                xrayAuth,
           "PDSL-XRAY Plugin E2E Tests",
           """
                   End to end tests for the pdsl-xray plugin.
                   These tests support the gherkin protocol both through special fields in 
                   the examples table or tags directly above scenarios:
                   |xray-test-plan | xray-test-case |  xray-test-platform  | xray-test-env |
-                  """);
+                  """,
+          () -> Map.of(
+                  "fields", Map.of(
+                         "project", Map.of("key", xrayAuth.getProperties().getProperty("xray.project.key")),
+                         "summary", "Automated test run by Polymorphic DSL Test Framework",
+                          "issuetype", Map.of("name", "Test Execution"),
+                          "assignee", Map.of("accountId", xrayAuth.getProperties().getProperty("xray.reporter.accountId")),
+                          "reporter", Map.of("accountId", xrayAuth.getProperties().getProperty("xray.reporter.accountId"))
+                          )
+          ),
+          tempDirectory
+  );
 
   private static final DefaultPolymorphicDslTestExecutor traceableTestRunExecutor = new DefaultPolymorphicDslTestExecutor();
   private static final PolymorphicDslPhraseFilter MY_CUSTOM_PDSL_PHRASE_FILTER = new MyCustomPDSLPhraseFilter();
@@ -136,7 +159,8 @@ public class XrayIntegrationTest {
     assertTrue(updater.hasTestResults(), "No test results collected by updater.");
     // Validation: Check if the updater has created a valid Xray payload.
     assertNotNull(updater.getXrayPayload(), "Xray payload is null.");
-    updater.publishReportsToXray();
+    List<HttpResponse> responses = updater.publishReportsToXray();
+    assertFalse(responses.isEmpty());
   }
 
   private static class MyCustomPDSLPhraseFilter implements PolymorphicDslPhraseFilter {
