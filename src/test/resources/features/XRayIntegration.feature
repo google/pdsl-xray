@@ -11,7 +11,7 @@ Scenario: Tests can be demarcated by environment
   Then a single test execution is produced
   And the execution contains all the environment tags
 
-@xray-test-case=GFENG-43270
+
 Scenario: Tags over Examples Table
   Given a test is written with two examples tables
   But the one that is executing is for the "<platform>" platform

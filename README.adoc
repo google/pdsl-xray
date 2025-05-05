@@ -1,0 +1,46 @@
+# XRAY Integration for Polymorphic DSL
+
+XRAY is a Test Management System. This repository allows it to integrate with the
+link:https://github.com/google/polymorphicDSL/tree/main[Polymorphic DSL Test library],
+which in turn allows the creation of extremely powerful and maintainable test suites by
+using the interpreter pattern.
+
+## Gherkin Support
+
+XRAY test metadata can be put in the feature file itself allowing for quick and easy maintenance of
+a test plan.
+
+Features include:
+
+. Using the same scenario for
+.. Multiple environments
+.. Multiple test cases
+. Configuration through examples tables
+. Hierarchical tag configuration
+
+
+You can always check link:src/test/java/com/google/pdsl/xray/XrayIntegrationTest.java[this repositories tests] for inspiration
+
+### Configuring PDSL
+
+First make the authentication object
+[source,java]
+----
+
+private static final XrayAuth xrayAuth = new XrayAuth(
+        "https://xray.cloud.getxray.app/api/v2/authenticate",
+        "<Your Client ID>",
+        "<Your Client Secret>" // Probably retrieved from a secret manager
+);
+
+// Alternatively, you can use a properties file
+// CAUTION: make sure you never commit your client secret to any version control system!
+// (We added our xray.properties to a .gitignore after submitting a blank copy to avoid trouble)
+private static final XrayAuth xrayAuth =  XrayAuth.fromPropertiesFile("src/test/resources/xray.properties");
+----
+
+When you have the auth object, you can then create the updater:
+[source,java]
+----
+
+----

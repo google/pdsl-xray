@@ -14,9 +14,20 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Optional;
+
 /**
  * DTO for request, to update the Xray API
  */
-public record XrayTestResult(String testKey, String status) {
+public record XrayTestResult(String testKey, String status, List<XrayIteration> examples) {
 
+    public record XrayIteration(long id, String status){}
+
+    public void addIteration(long id, String status) {
+        examples.add(new XrayIteration(id, status));
+    }
 }

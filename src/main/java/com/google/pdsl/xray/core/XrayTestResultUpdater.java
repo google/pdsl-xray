@@ -16,6 +16,7 @@ import org.antlr.v4.runtime.tree.ParseTreeVisitor;
 import org.antlr.v4.runtime.tree.ParseTreeWalker;
 import org.apache.commons.codec.Charsets;
 import org.apache.http.HttpHeaders;
+import org.apache.http.HttpResponse;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.ContentType;
@@ -66,6 +67,39 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
     private final String title;
     private final Supplier<Map<Object, Object>> fieldSupplier;
     private final Path tempDirectory;
+    private XrayResultObserver observer = new DefaultXrayObserver(List.of(
+            "ABORTED", "EXECUTING", "TODO", "BLOCKED", "FAIL", "PENDING_VALIDATION", "PASS"));
+
+    public static class DefaultXrayObserver implements XrayResultObserver {
+
+        private final List<String> xrayStatusHierarchy;
+
+        public DefaultXrayObserver(List<String> xrayStatusHierarchy) {
+            this.xrayStatusHierarchy = xrayStatusHierarchy;
+        }
+
+        @Override
+        public Set<XrayTestExecutionResult> processResults(TestCase testCase, Set<XrayTestExecutionResult> results) {
+            Set<XrayTestExecutionResult> resultsWithModifiedStatus = new HashSet<>(results.size());
+            for (XrayTestExecutionResult execution : results) {
+                Set<XrayTestResult> modifiedTests = new HashSet<>(execution.tests().size());
+                for (XrayTestResult t : execution.tests()) {
+                    Optional<String> newStatus = Optional.empty();
+                    for (String status : xrayStatusHierarchy) {
+                        if (t.examples().stream()
+                                .anyMatch(test -> test.status().equalsIgnoreCase(status))) {
+                            newStatus = Optional.of(status);
+                            break;
+                        }
+                    }
+                    modifiedTests.add(newStatus.map(s -> new XrayTestResult(t.testKey(), s, t.examples()))
+                            .orElse(t));
+                }
+                resultsWithModifiedStatus.add(new XrayTestExecutionResult(execution.info(), modifiedTests));
+            }
+            return resultsWithModifiedStatus;
+        }
+    }
 
     private void validateTempDirectory(Path tempDirectoryPath) {
         if (!tempDirectoryPath.toFile().isDirectory()) {
@@ -108,6 +142,10 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         this.tempDirectory = tempDirectoryPath;
     }
 
+    public void setResultProcessorObserver(XrayResultObserver observer) {
+        this.observer = observer;
+    }
+
 
     /**
      * Called when a Gherkin scenario is converted.  Currently logs the Xray test key if found.
@@ -123,13 +161,14 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         addTags(tags, substitutions, "<xray-test-plan>");
         addTags(tags, substitutions, "<xray-test-case>");
         addTags(tags, substitutions, "<xray-test-env>");
+        addTags(tags, substitutions, "<xray-iteration>");
     }
 
     private static void addTags(Set<String> tags, Map<String, String> substitutions, String key) {
         for (Map.Entry<String, String> entry : substitutions.entrySet()) {
             if (entry.getKey().equalsIgnoreCase(key)) {
                 // Remove the < > from the key
-                tags.add("@%s=%s".formatted(key.substring(1, key.length() - 1), entry.getValue()));
+                tags.add("@%s=%s".formatted(key.substring(1, key.length() - 1), entry.getValue().strip()));
                 return; // Exit after finding the first match
             }
         }
@@ -146,7 +185,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
 
     @Override
     public void onAfterTestSuite(Collection<? extends TestCase> testCases,
-                                 org.antlr.v4.runtime.tree.ParseTreeVisitor<?> visitor, MetadataTestRunResults results,
+                                 ParseTreeVisitor<?> visitor, MetadataTestRunResults results,
                                  String context) {
         addResults(results.getTestResults());
     }
@@ -154,9 +193,9 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
     /**
      * Publishes the test execution reports to Xray.
      */
-    public List<org.apache.http.HttpResponse> publishReportsToXray() {
-        List<org.apache.http.HttpResponse> responses = new ArrayList<>();
-        boolean debugging = false;
+    public List<HttpResponse> publishReportsToXray() {
+        List<HttpResponse> responses = new ArrayList<>();
+        boolean debugging = true;
         if (debugging) {
             System.setProperty("org.apache.commons.logging.Log", "org.apache.commons.logging.impl.SimpleLog");
             System.setProperty("org.apache.commons.logging.simplelog.showdatetime", "true");
@@ -174,12 +213,21 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
                     Set<XrayTestResult> results = info2Results.computeIfAbsent(r.info(), k -> new HashSet<>());
                     results.addAll(r.tests());
                 });
+        // If a test had iterations each iteration at this point might be a distinct test case.
+        // Consolodate the iteraitons
+        Map<Info, Set<XrayTestResult>> consolodatedResults = new HashMap<>();
+        for (Map.Entry<Info, Set<XrayTestResult>> entry : info2Results.entrySet()) {
+            // Associate each iteration with it's respective test case
+           Set<XrayTestResult> testResultsWithConsolodatedIteraitons = associateTestCasesWithIterations(entry.getValue());
+           consolodatedResults.put(entry.getKey(), testResultsWithConsolodatedIteraitons);
+        }
+
         try {
         Path info = Files.writeString(tempDirectory.resolve(String.format("info-%s.json", UUID.randomUUID())),
                 objectMapper.writeValueAsString(fieldSupplier.get()), Charsets.UTF_8,
                 StandardOpenOption.CREATE_NEW);
         info.toFile().deleteOnExit();
-        for (Map.Entry<Info, Set<XrayTestResult>> entry : info2Results.entrySet()) {
+        for (Map.Entry<Info, Set<XrayTestResult>> entry : consolodatedResults.entrySet()) {
 
             String requestBody = objectMapper.writeValueAsString(new XrayTestExecutionResult(entry.getKey(), entry.getValue()));
 
@@ -200,7 +248,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
             post.setEntity(MultipartEntityBuilder.create()
                             .addBinaryBody("results", results.toFile(), ContentType.APPLICATION_JSON, results.getFileName().toString())
                             .addBinaryBody("info", info.toFile(), ContentType.APPLICATION_JSON, info.getFileName().toString())
-                            .setLaxMode()
+                    .setLaxMode()
                             .setBoundary("X-PDSL-XRAY-PLUGIN-BOUNDARY")
                     .setCharset(StandardCharsets.UTF_8)
                     .build());
@@ -243,15 +291,32 @@ private String getXrayReportUrl() {
     return apiUrl;
 }
 
+private Set<XrayTestResult> associateTestCasesWithIterations(Collection<XrayTestResult> results) {
+    Map<String, XrayTestResult> testCaseToIterations = new HashMap<>();
+    results.forEach(r -> {
+                XrayTestResult consolodatedResult = testCaseToIterations.computeIfAbsent(r.testKey(), (k) -> new XrayTestResult(r.testKey(), r.status(), new ArrayList<>()));
+                consolodatedResult.examples().addAll(r.examples());
+            });
+    return new HashSet<>(testCaseToIterations.values());
+}
 /**
  * Adds test results to the internal map for later publishing to Xray.
  *
  * @param results The collection of test results.
  */
 public void addResults(Collection<TestResult> results) {
-
+    // It is possible that the results for a test suite will come one at a time
+    // We cannot assume we will have all of the tabular scenarios in the colleciton, for example
     for (TestResult result : results) {
 
+
+        String resultString = switch (result.getStatus()) {
+            case STATUS_UNSPECIFIED -> "BLOCKED";
+            case PASSED, DUPLICATE -> "PASS";
+            case  FAILED, UNRECOGNIZED -> result.getFailureReason().map(e ->
+                    e.getMessage()
+                            .contains(("An operation is not implemented")) ? "TODO" : "FAIL").orElse("FAIL");
+        };
         TestCase testCase = result.getTestCase();
         if (testCase instanceof TaggedTestCase taggedTestCase) {
             Collection<String> testPlanTags = extractTags(taggedTestCase.getTags(), "@xray-test-plan=");
@@ -260,7 +325,8 @@ public void addResults(Collection<TestResult> results) {
                     .map(s -> Arrays.asList(s.split(",")))
                     .flatMap(Collection::stream)
                     .collect(Collectors.toUnmodifiableSet());
-
+            Optional<String> iterationTag = extractTags(taggedTestCase.getTags(), "@xray-iteration=").stream()
+                    .findFirst();
             List<Info> listOfInfo = testPlanTags.stream().map(tag -> new Info(
                     title, // testCase.getTestTitle(),
                     description, //String.join("", taggedTestCase.getUnfilteredPhraseBody()),
@@ -268,17 +334,29 @@ public void addResults(Collection<TestResult> results) {
                     envTags.isEmpty() ? environments : envTags
             )).toList();
 
-            Set<XrayTestResult> xrayTestResults = caseTags.stream().map(t -> new XrayTestResult(
-                    t, result.getStatus().toString()
-            )).collect(Collectors.toSet());
+            Set<XrayTestResult> xrayResultsByPotentialIteration = caseTags.stream().map(t ->
+                    iterationTag.map(
+                            s -> new XrayTestResult(t, result.getStatus().toString(),
+                                        new ArrayList<>(List.<XrayTestResult.XrayIteration>of(new XrayTestResult.XrayIteration(Long.parseLong(s),
+                                                resultString))
+                            )))
+                            .orElseGet(() -> new XrayTestResult(t, resultString, new ArrayList<>()))
+            ).collect(Collectors.toSet());
 
-            Set<XrayTestExecutionResult> resultsSet = testCaseXrayTestExecutionResultMap.computeIfAbsent(
-                    testCase, k -> new HashSet<>());
-            for (Info info : listOfInfo) {
-                resultsSet.add(new XrayTestExecutionResult(info, xrayTestResults));
-            }
+            // Associate the results with each respective test suite it was associated with
+            var resultsPriorToObserverModification = listOfInfo.stream()
+                            .map(i -> new XrayTestExecutionResult(i, xrayResultsByPotentialIteration))
+                    .collect(Collectors.toSet());
+            var finalResults = observer.processResults(testCase, resultsPriorToObserverModification);
+            var resultsSet = testCaseXrayTestExecutionResultMap.computeIfAbsent(testCase, (k) -> new HashSet<>());
+            resultsSet.addAll(finalResults);
         }
     }
+}
+
+public interface XrayResultObserver {
+
+    Set<XrayTestExecutionResult> processResults(TestCase testCase, Set<XrayTestExecutionResult> results);
 }
 
 private static List<String> extractTags(Collection<String> tags, String prefix) {
@@ -363,8 +441,6 @@ public void onAfterTestSuite(Collection<? extends TestCase> testCases,
 public void onBeforeTestSuite(Collection<? extends TestCase> testCases,
                               ParseTreeVisitor<?> visitor,
                               String context) {
-
 }
-
 
 }
