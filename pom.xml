@@ -87,7 +87,7 @@ limitations under the License.
     <dependency>
       <groupId>com.google.pdsl</groupId>
       <artifactId>pdsl</artifactId>
-      <version>1.7.7</version>
+      <version>1.10.1</version>
     </dependency>
     <dependency>
       <groupId>org.antlr</groupId>
@@ -99,6 +99,12 @@ limitations under the License.
       <artifactId>antlr4</artifactId>
       <version>${antlr.version}</version>
     </dependency>
+      <dependency>
+          <groupId>org.mockito</groupId>
+          <artifactId>mockito-junit-jupiter</artifactId>
+          <version>5.18.0</version>
+          <scope>test</scope>
+      </dependency>
   </dependencies>
 
   

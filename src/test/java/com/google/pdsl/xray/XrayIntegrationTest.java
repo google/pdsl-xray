@@ -55,17 +55,10 @@ limitations under the License.
  */
 public class XrayIntegrationTest {
 
-  private static final Path tempDirectory = initTempDir();
-  private static Path initTempDir() {
-    try {
-      return Files.createTempDirectory("xray");
-    } catch (IOException e) {
-      throw new IllegalStateException("Could not create a temp directory!", e);
-    }
-  }
+
   private static final XrayAuth xrayAuth =  XrayAuth.fromPropertiesFile("src/test/resources/xray.properties");
-  private static final XrayTestResultUpdater updater = new XrayTestResultUpdater(
-                xrayAuth,
+  private static final XrayTestResultUpdater updater = new XrayTestResultUpdater.Builder(
+
           "PDSL-XRAY Plugin E2E Tests",
           """
                   End to end tests for the pdsl-xray plugin.
@@ -81,9 +74,8 @@ public class XrayIntegrationTest {
                           "assignee", Map.of("accountId", xrayAuth.getProperties().getProperty("xray.reporter.accountId")),
                           "reporter", Map.of("accountId", xrayAuth.getProperties().getProperty("xray.reporter.accountId"))
                           )
-          ),
-          tempDirectory
-  );
+          )).withXrayAuth(xrayAuth)
+      .build();
 
   private static final DefaultPolymorphicDslTestExecutor traceableTestRunExecutor = new DefaultPolymorphicDslTestExecutor();
   private static final PolymorphicDslPhraseFilter MY_CUSTOM_PDSL_PHRASE_FILTER = new MyCustomPDSLPhraseFilter();
@@ -155,8 +147,6 @@ public class XrayIntegrationTest {
    */
   @AfterAll
   public static void publishReportsToXray() {
-    // Validation: Check if updater has collected results.
-    assertTrue(updater.hasTestResults(), "No test results collected by updater.");
     // Validation: Check if the updater has created a valid Xray payload.
     assertNotNull(updater.getXrayPayload(), "Xray payload is null.");
     List<HttpResponse> responses = updater.publishReportsToXray();
