@@ -18,6 +18,4 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 public record Info(String summary, String description, String testPlanKey,
-                   Set<String> testEnvironments) {
-
-}
+                   Set<String> testEnvironments) { }

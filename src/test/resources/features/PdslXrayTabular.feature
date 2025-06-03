@@ -16,13 +16,15 @@ Feature: Tabular Parameters
       | GFENG-43264   | GFENG-83844    |  ios                 | TST           |
       | GFENG-43264   | GFENG-83843    |  ios                 | TST           |
 
-  @android
+    @android
     Examples:
       |xray-test-plan | xray-test-case |  xray-test-platform  | xray-test-env |
       | GFENG-43264   | GFENG-46453    |  android             | DEV,TST       |
 
-    Examples: Structured
-      |xray-test-plan | xray-test-case |  xray-test-platform  | xray-test-env |
-      | GFENG-43264   | GFENG-75028    |  ios                 | TST           |
-      | GFENG-43264   | GFENG-83844    |  ios                 | TST           |
-      | GFENG-43264   | GFENG-83843    |  ios                 | TST           |
+
+    @android @wip
+    Examples:
+      |xray-test-plan | xray-test-case | xray-test-env | test-type    |
+      | GFENG-43264   | GFENG-75028    | TST           | Unstructured |
+      | GFENG-43264   | GFENG-83844    | TST           | Manual       |
+      | GFENG-43264   | GFENG-83843    | TST           | Gherkin      |
