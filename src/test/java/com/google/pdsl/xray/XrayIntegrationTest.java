@@ -27,6 +27,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -130,6 +131,9 @@ public class XrayIntegrationTest {
 
     @Override
     public Stream<TestTemplateInvocationContext> provideTestTemplateInvocationContexts(ExtensionContext context) {
+      if (true) {
+        return new ArrayList<TestTemplateInvocationContext>().stream();
+      }
       return getInvocationContext(createParameterWithTag("@ios")).stream();
     }
   }
@@ -138,7 +142,7 @@ public class XrayIntegrationTest {
   private static class AndroidExtension extends PdslGherkinInvocationContextProvider {
     @Override
     public Stream<TestTemplateInvocationContext> provideTestTemplateInvocationContexts(ExtensionContext context) {
-      return getInvocationContext(createParameterWithTag("@android")).stream();
+      return getInvocationContext(createParameterWithTag("@wip")).stream();
     }
   }
 

@@ -5,7 +5,7 @@ Feature: Minimal Scenario Outline
 @xray-test-env=DEV,TST
 @ios
 Scenario: Tests can be demarcated by environment
-    Given a scenario is marked with a single XRAY test case annotation
+  Given a scenario is marked with a single XRAY test case annotation
   But it is marked with multiple environment tags
   When the test is run
   Then a single test execution is produced

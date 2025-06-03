@@ -10,7 +10,6 @@ import com.pdsl.gherkin.GherkinObserver;
 import com.pdsl.gherkin.models.GherkinScenario;
 import com.pdsl.reports.MetadataTestRunResults;
 import com.pdsl.reports.TestResult;
-import com.pdsl.reports.proto.TechnicalReportData;
 import com.pdsl.testcases.SharedTestCase;
 import com.pdsl.testcases.TaggedTestCase;
 import com.pdsl.testcases.TestCase;
@@ -69,25 +68,44 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
     private final Path tempDirectory;
     private final List<String> xrayStatuses;
 
-    private XrayTestResultUpdater(XrayAuth xrayAuth, String title, String description,
-                                 Supplier<Map<Object, Object>> fieldSupplier, Path tempDirectoryPath,
-                                 Set<String> environments, List<String> xrayStatuses) {
+    private record TestPlan(String key, List<XrayTestCase> testCases) {
+        private record XrayTestCase(String key, Set<String> environments, URI uri) {
+        }
+    }
+
+    private XrayTestResultUpdater(Builder builder) {
+        Path tempDirectoryPath = builder.tempDirectory.orElseGet(() -> {
+            try {
+                return Files.createTempDirectory("pdsl-xray");
+            } catch (IOException e) {
+                throw new IllegalStateException("""
+                        No path for temporary files was provided in the builder,
+                        so tried to create one in the standard temp directory.
+                        
+                        Recommended: Provide a viable path using this builder.
+                        
+                        Alternative: Fix the following IOException.
+                        """, e);
+            }
+        });
         validateTempDirectory(tempDirectoryPath);
-        this.xrayAuth = xrayAuth;
-        this.objectMapper = new ObjectMapper();
-        prop = xrayAuth.getProperties();
-        this.environments = environments;
-        this.description = description;
-        this.title = title;
-        this.fieldSupplier = fieldSupplier;
         this.tempDirectory = tempDirectoryPath;
-        this.xrayStatuses = xrayStatuses;
+        this.xrayAuth = builder.xrayAuth
+                .orElse(builder.prop.map(path -> XrayAuth.fromPropertiesFile(path.toAbsolutePath().toString()))
+                        .orElseGet(() -> XrayAuth.fromPropertiesFile("src/test/resources/xray.properties")));
+        this.environments = builder.environments.orElse(Set.of());
+        this.description = builder.description;
+        this.title = builder.title;
+        this.fieldSupplier = builder.fieldSupplier;
+        this.objectMapper = builder.objectMapper;
+        this.xrayStatuses = builder.xrayStatuses;
     }
 
     public static class Builder {
+        private static final ObjectMapper defaultObjectMapper = new ObjectMapper();
         private Optional<XrayAuth> xrayAuth = Optional.empty();
-        private ObjectMapper objectMapper = new ObjectMapper();
-        private Optional<Properties> prop = Optional.empty();
+        private ObjectMapper objectMapper = defaultObjectMapper;
+        private Optional<Path> prop = Optional.empty();
         private Optional<Set<String>> environments = Optional.empty();
         private String description;
         private String title;
@@ -102,35 +120,12 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
             XrayAuth auth = xrayAuth.orElse(
                     XrayAuth.fromPropertiesFile("src/test/resources/xray.properties"));
             Set<String> envs = environments.orElseGet(() -> Arrays.stream(
-                    auth.getProperties().get("xray.environments")
-                            .toString()
-                            .split(","))
+                            auth.getProperties().get("xray.environments")
+                                    .toString()
+                                    .split(","))
                     .collect(Collectors.toSet()));
-            return new XrayTestResultUpdater(xrayAuth.orElse(
-                    XrayAuth.fromPropertiesFile("src/test/resources/xray.properties")),
-                    title,
-                    description,
-                    fieldSupplier,
-                    tempDirectory.orElseGet(() -> {
-                        try {
-                            return Files.createTempDirectory("xray");
-                        } catch (IOException e) {
-                            throw new IllegalStateException("""
-                        No path for temporary files was provided in the builder,
-                        so tried to create one in the standard temp directory.
-                        
-                        Recommended: Provide a viable path using this builder.
-                        
-                        Alternative: Fix the following IOException.
-                        """, e);
-                        }
-                    }),
-                    envs,
-                    xrayStatuses);
-
-
+            return new XrayTestResultUpdater(this);
         }
-
 
         public Builder(String title, String description, Supplier<Map<Object, Object>> fieldSupplier) {
             Preconditions.checkNotNull(fieldSupplier, "fieldSupplier must not be null");
@@ -150,18 +145,20 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
             this.tempDirectory = Optional.ofNullable(tempDirectory);
             return this;
         }
+
         public Builder withFieldSupplier(Supplier<Map<Object, Object>> fieldSupplier) {
             Preconditions.checkNotNull(fieldSupplier);
             this.fieldSupplier = fieldSupplier;
             return this;
         }
+
         public Builder withTitle(String title) {
             Preconditions.checkNotNull(title);
             this.title = title;
             return this;
         }
 
-        public Builder withDescriptionS(String description) {
+        public Builder withDescription(String description) {
             Preconditions.checkNotNull(description);
             this.description = description;
             return this;
@@ -172,8 +169,8 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
             return this;
         }
 
-        public Builder withProperties(Properties properties) {
-            this.prop = Optional.of(properties);
+        public Builder withPropertiesPath(Path path) {
+            this.prop = Optional.of(path);
             return this;
         }
 
@@ -215,32 +212,61 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         }
     }
 
-    private record TestItem(String testKey, String status, List<String> stepDescription, Throwable throwable, Integer failedStepIndex){
-        public Optional<Integer> getFailedStepIndex() { return Optional.ofNullable(failedStepIndex); }
-        public Optional<Throwable> getThrowable() { return Optional.ofNullable(throwable); }
+    private record TestItem(String title, String testKey, String status, String testPlan, Set<String> environments,
+                            List<String> stepDescription,
+                            Throwable throwable,
+                            Integer failedStepIndex) {
+        public Optional<Integer> getFailedStepIndex() {
+            return Optional.ofNullable(failedStepIndex);
+        }
+
+        public Optional<Throwable> getThrowable() {
+            return Optional.ofNullable(throwable);
+        }
     }
 
     private final class HierarchicalTestSuite {
 
-        private record TestGroup(String source, Info info, int groupNumber, Map<Integer, TestOrdinal> ordinals) {
+        private record TestGroup(String source, int groupNumber, Map<Integer, TestOrdinal> ordinals) {
+
+            Collection<XrayTestResult> toTestExecutionResults(List<String> xrayStatuses) {
+
+                List<XrayTestResult> results = new ArrayList<>();
+                for (TestOrdinal ordinal : ordinals.values()) {
+                    // Sort all of the ordinals to make the results show up the same way as they did in the file
+                    ordinal.permutations.sort(Comparator.comparingInt(t -> t.permutationNumber));
+                    List<String> examplesResults = new ArrayList<>();
+                    List<XrayTestResult.Iteration> iterations = new ArrayList<>();
+                    for (int i = 0; i < ordinal.permutations.size(); i++) {
+                        TestPermutation permutation = ordinal.permutations.get(i);
+                        examplesResults.add(permutation.result.status);
+                        iterations.add(new XrayTestResult.Iteration(
+                                String.valueOf(i),
+                                permutation.result.status,
+                                new HashMap<>(),
+                                iterationStepsFromPermutation(permutation)));
+                    }
+                    XrayTestResult consolidatedResult = new XrayTestResult(ordinal.permutations.getFirst().result.testKey(),
+                            calculateOverallStatus(examplesResults, xrayStatuses), examplesResults);
+                    results.add(consolidatedResult);
+                }
+                return results;
+           }
         }
 
-        private record TestOrdinal(int ordinal, String xrayTestCase, List<TestPermutation> permutations) {
-        }
+        private record TestOrdinal(int ordinal, String xrayTestCase, List<TestPermutation> permutations) { }
+        private record TestPermutation(URI source, int permutationNumber, TestItem result) { }
 
-        private record TestPermutation(URI source, int permutationNumber, TestItem result) {
-        }
+        private final Map<String, List<TestGroup>> source2TestGroups = new HashMap<>();
 
-        private final Map<Info, List<TestGroup>> info2TestGroups = new HashMap<>();
-
-        void addTestResult(URI source, Info info, TestItem result, int groupNumber, int ordinal, int exampleNumber) {
-            Collection<TestGroup> testGroups = info2TestGroups.computeIfAbsent(info, (k) -> new ArrayList<>());
+        void addTestResult(URI source, TestItem result, int groupNumber, int ordinal, int exampleNumber) {
+            List<TestGroup> testGroups = source2TestGroups.computeIfAbsent(source.getPath(), (k) -> new ArrayList<>());
             TestGroup group = testGroups.stream()
                     .filter(g -> g.groupNumber == groupNumber)
                     .findFirst()
                     .orElseGet(() -> {
-                        var g = new TestGroup(source.getPath(), info, groupNumber, new HashMap<>());
-                        info2TestGroups.get(info).add(g);
+                        var g = new TestGroup(source.getPath(), groupNumber, new HashMap<>());
+                        testGroups.add(g);
                         return g;
                     });
             TestOrdinal testOrdinal = group.ordinals.computeIfAbsent(ordinal, (k) -> new TestOrdinal(ordinal, result.testKey(), new ArrayList<>()));
@@ -248,43 +274,83 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
             permutations.add(new TestPermutation(source, exampleNumber, result));
         }
 
-        Collection<XrayTestExecutionResult> Info2Results() {
+        /**
+         * Creates XrayTestExecutionResult objects based on any added test results in the past.
+         * @return
+         */
+        Collection<XrayTestExecutionResult> info2Results() {
+            // The permutations contain all the information about that is needed to put them in a hierarchy.
+            // Consolidate across different test groups and create an execution:
+            // per Test Plan
+            // per environment combination
+
+            // First get the permutations
+            List<TestPermutation> testResults = source2TestGroups.values().stream()
+                    .flatMap(List::stream)
+                    .flatMap(g -> g.ordinals.values().stream())
+                    .flatMap(o -> o.permutations.stream())
+                    .toList();
+
+            // The below translates to Map<TestPlanKey, Map<EnvironmentSet, List<TestPermutation>>
+            Map<String, Map<Set<String>, List<TestPermutation>>> permutations = new HashMap<>();
+            testResults.forEach(p ->
+                    permutations.computeIfAbsent(p.result.testPlan, (k) -> new HashMap<>()) // Group by test plan
+                            .computeIfAbsent(p.result.environments, (k) -> new ArrayList<>()) // Then environment
+                            .add(p));
+
+            // After grouping, sort each permutation
+            permutations.values().stream()
+                    .flatMap(envMap -> envMap.values().stream())
+                    .forEach(e -> e.sort(Comparator.comparingInt(p -> p.permutationNumber)));
+
+            // Finally, create an execution result per test plan & environment combination
             List<XrayTestExecutionResult> results = new ArrayList<>();
-            Map<Info, List<XrayTestResult>> info2Results = new HashMap<>();
-            for (Map.Entry<Info, List<TestGroup>> entry : this.info2TestGroups.entrySet()) {
-                List<XrayTestResult> testResults = info2Results.computeIfAbsent(entry.getKey(), (k) -> new ArrayList<>());
-                for (TestGroup testGroup : entry.getValue()) {
-                    for (TestOrdinal ordinal : testGroup.ordinals.values()) {
-                        // Sort all of the ordinals to make the results show up the same way as they did in the file
-                        ordinal.permutations.sort(Comparator.comparingInt(t -> t.permutationNumber));
-                        List<String> examplesResults = new ArrayList<>();
-                        List<XrayTestResult.Iteration> iterations = new ArrayList<>();
-                        for (int i=0; i < ordinal.permutations.size(); i++) {
-                            TestPermutation permutation = ordinal.permutations.get(i);
-                            examplesResults.add(permutation.result.status);
-                            iterations.add(new XrayTestResult.Iteration(
-                                    String.valueOf(i),
-                                    permutation.result.status,
-                                    new HashMap<>(),
-                                    iterationStepsFromPermutation(permutation)));
+            for (Map.Entry<String, Map<Set<String>, List<TestPermutation>>> entry : permutations.entrySet()) {
+                for (Map.Entry<Set<String>, List<TestPermutation>> permutationEntry : entry.getValue().entrySet()) {
+                    String sources = permutationEntry.getValue().stream()
+                            .map(TestPermutation::source)
+                            .map(URI::getPath)
+                            .collect(Collectors.joining(String.format("%n")));
+
+                    // Permutations could conceivably have come from multiple files and have multiple test plans/test cases
+                    // specified in the rows.
+                    // In order to create "examples" in the same test case, group by source file and test case
+                    //Map<Source, Map<TestKey, List<TestPermutation>>
+                    Map<String, Map<String, List<TestPermutation>>> consolidatedTestResults = new HashMap<>();
+                    permutationEntry.getValue()
+                            .forEach(p -> consolidatedTestResults.computeIfAbsent(p.source.getPath(), (k) -> new HashMap<>())
+                                    .computeIfAbsent(p.result.testKey, (k) -> new ArrayList<>())
+                                    .add(p));
+                    // Sort the permutations after they've all been added
+                    consolidatedTestResults.values()
+                            .forEach(e -> e.values()
+                                    .forEach(permutaitonsList -> permutaitonsList.sort(Comparator.comparingInt(p -> p.permutationNumber))));
+                    // Create executions from our data which should now be completely structured
+                    for (Map<String, List<TestPermutation>> map2Permutations : consolidatedTestResults.values()) {
+                        Set<XrayTestResult> xrayTestResults = new HashSet<>();
+                        for (Map.Entry<String, List<TestPermutation>> e : map2Permutations.entrySet()) {
+                            e.getValue().sort(Comparator.comparingInt(p -> p.permutationNumber));
+                            List<String> examplesResults = e.getValue().stream()
+                                .map(p -> p.result.status)
+                                .toList();
+                            xrayTestResults.add(new XrayTestResult(e.getKey(), calculateOverallStatus(examplesResults, xrayStatuses), examplesResults));
                         }
-                        XrayTestResult consolidatedResult = new XrayTestResult(ordinal.permutations.getFirst().result.testKey(),
-                                calculateOverallStatus(examplesResults), examplesResults
-                                // TODO: determine if iterations can be supported propertly
-                                //  , iterations
-                                );
-                        testResults.add(consolidatedResult);
-                        info2Results.get(entry.getKey()).add(consolidatedResult);
+                        results.add(new XrayTestExecutionResult(new Info(
+                                String.format("Automated tests from sources:%n%s", sources),
+                                description,
+                                permutationEntry.getValue().getFirst().result.testPlan,
+                                permutationEntry.getKey()),
+                                xrayTestResults));
                     }
                 }
             }
-            return info2Results.entrySet().stream()
-                    .map(e -> new XrayTestExecutionResult(e.getKey(), new HashSet<>(e.getValue())))
-                    .toList();
+            return results;
         }
     }
 
-    private List<XrayTestResult.Iteration.XrayStep> iterationStepsFromPermutation(HierarchicalTestSuite.TestPermutation p) {
+
+
+    private static List<XrayTestResult.Iteration.XrayStep> iterationStepsFromPermutation(HierarchicalTestSuite.TestPermutation p) {
         List<XrayTestResult.Iteration.XrayStep> steps = new ArrayList<>();
         for (String step : p.result.stepDescription) {
             // TODO: We need to track the correct status by step rather than
@@ -298,7 +364,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
     /* Look at all the statuses we've gotten. Find the most significant status and use that to represent
        the overall status of the test.
      */
-    private String calculateOverallStatus(List<String> statuses) {
+    private static String calculateOverallStatus(List<String> statuses, List<String> xrayStatuses) {
         int index = statuses.stream()
                 .mapToInt(xrayStatuses::indexOf)
                 .sorted()
@@ -306,7 +372,6 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
                 .orElseThrow();
         return xrayStatuses.get(index);
     }
-
 
     /**
      * Called when a Gherkin scenario is converted.  Currently logs the Xray test key if found.
@@ -335,9 +400,25 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
     }
 
 
-
     /**
      * Publishes the test execution reports to Xray.
+     * <p>
+     * This will result in multiple calls to the XRAY API.
+     * There will be 1 execution generated per set of environments.
+     * <p>
+     * E.g. if you have 3 tests with the following environments:
+     * #1 DEV, TST
+     * #2 DEV
+     * #3 TST
+     * <p>
+     * there will be 3 executions created. The implementation cannot
+     * consolidate this down to 2 executions based on the shared environments because
+     * some users of XRAY will specify operations systems (such as iOS or Android) with
+     * the environments. Currently we have no feature that allows us to distinguish between
+     * environments we could safely factor out and combine with other executions and others
+     * that must be coupled to their original groups of environments.
+     *
+     * @return List of HTTPResponse: the responses from each attempt to create a test execution
      */
     public List<org.apache.http.HttpResponse> publishReportsToXray() {
         List<org.apache.http.HttpResponse> responses = new ArrayList<>();
@@ -357,8 +438,8 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
                     objectMapper.writeValueAsString(fieldSupplier.get()), Charsets.UTF_8,
                     StandardOpenOption.CREATE_NEW);
             info.toFile().deleteOnExit();
-            for (Map.Entry<String, HierarchicalTestSuite> entry : testCaseXrayTestExecutionResultMap.entrySet()) {
-                for (XrayTestExecutionResult executionResult : entry.getValue().Info2Results()) {
+            for (HierarchicalTestSuite suite : testCaseXrayTestExecutionResultMap.values()) {
+                for (XrayTestExecutionResult executionResult : suite.info2Results()) {
                     String requestBody = objectMapper.writeValueAsString(executionResult);
                     // Convert the request to files as per the xray API specification
                     Path results = Files.writeString(tempDirectory.resolve(Path.of(String.format("results-%s.json", UUID.randomUUID()))),
@@ -399,12 +480,12 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
             }
             @SuppressWarnings("unused") boolean unused = info.toFile().delete();
             testCaseXrayTestExecutionResultMap.clear();
+            tempDirectory.toFile().deleteOnExit();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
         return responses;
     }
-
 
     /**
      * Retrieves the Xray report URL from the properties file.
@@ -431,75 +512,72 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         for (TestResult result : results) {
             TestCase testCase = result.getTestCase();
             if (testCase instanceof TaggedTestCase taggedTestCase) {
-                Collection<String> testPlanTags = extractTags(taggedTestCase.getTags(), "@xray-test-plan=");
-                Collection<String> caseTags = extractTags(taggedTestCase.getTags(), "@xray-test-case=");
+
+                Set<String> testPlanTags = new HashSet<>(extractTags(taggedTestCase.getTags(), "@xray-test-plan="));
+                if (testPlanTags.size() > 1) {
+                    throw new IllegalArgumentException(String.format("""
+                            Only one test plan can be associated with a test case!
+                            Problem Test-
+                            %s
+                            %s
+                            
+                            Tags: %s
+                            
+                            """, testCase.getOriginalSource(), testCase.getTestTitle(), taggedTestCase.getTags()));
+                }
                 Set<String> envTags = extractTags(taggedTestCase.getTags(), "@xray-test-env=").stream()
                         .map(s -> Arrays.asList(s.split(",")))
                         .flatMap(Collection::stream)
                         .collect(Collectors.toUnmodifiableSet());
 
-                List<Info> listOfInfo = testPlanTags.stream().map(tag -> new Info(
-                        title, // testCase.getTestTitle(),
-                        description, //String.join("", taggedTestCase.getUnfilteredPhraseBody()),
-                        tag,
-                        envTags.isEmpty() ? environments : envTags
-                )).toList();
+                Collection<String> caseTags = extractTags(taggedTestCase.getTags(), "@xray-test-case=");
 
+                List<TestPlan.XrayTestCase> testCases = caseTags.stream()
+                        .map(tc -> new TestPlan.XrayTestCase(tc, envTags, testCase.getOriginalSource()))
+                        .toList();
+                TestPlan testPlan = new TestPlan(testPlanTags.stream().findFirst().orElse(null), testCases);
                 Set<TestItem> testItems = caseTags.stream()
-                        .map(t -> new TestItem(t, result.getStatus().toString(),
+                        .map(t -> new TestItem(
+                                testCase.getTestTitle(),
+                                t,
+                                result.getStatus().toString(),
+                                testPlan.key,
+                                envTags.isEmpty() ? environments : envTags,
                                 testCase.getUnfilteredPhraseBody(),
                                 result.getFailureReason().orElse(null),
                                 result.getFailingPhrase().isPresent() ? result.getFailingPhrase().get().getPrefilteredIndex() : null
-                                ))
-                .collect(Collectors.toSet());
-
-                try {
-                    tryAddParams(testCase.getOriginalSource(), listOfInfo, testItems);
-                } catch (NumberFormatException | IllegalStateException e) {
-                    HierarchicalTestSuite hierarchicalTest = testCaseXrayTestExecutionResultMap.computeIfAbsent(
-                            testCase.getOriginalSource().getPath(), k -> new HierarchicalTestSuite());
-                    for (Info info : listOfInfo) {
-                        testItems.forEach(testItem -> {
-                            hierarchicalTest.addTestResult(
-                                    testCase.getOriginalSource(),
-                                    info,
-                                    testItem,
-                                    -1,
-                                    -1,
-                                    -1
-                            );
-                        });
-                    }
+                        ))
+                        .collect(Collectors.toSet());
+                HierarchicalTestSuite suite = testCaseXrayTestExecutionResultMap.computeIfAbsent(testPlan.key, (k) -> new HierarchicalTestSuite());
+                GherkinScenario.ScenarioPosition position = getPosition(testCase.getOriginalSource());
+                testItems.forEach(testItem -> {
+                    suite.addTestResult(
+                            testCase.getOriginalSource(),
+                            testItem,
+                            position.ruleIndex(),
+                            position.ordinal(),
+                            position.testIndex()
+                    );
+                });
                 }
             }
         }
-    }
 
-    private void tryAddParams(URI uri, List<Info> listOfInfo, Set<TestItem> testItems) {
-        HierarchicalTestSuite hierarchicalTest = testCaseXrayTestExecutionResultMap.computeIfAbsent(
-                uri.getPath(), k -> new HierarchicalTestSuite());
+
+    private static final GherkinScenario.ScenarioPosition DEFAULT_POSITION = new GherkinScenario.ScenarioPosition(-1, -1, -1);
+    private GherkinScenario.ScenarioPosition getPosition(URI uri) {
+
         Map<String, String> params = Arrays.stream(uri.getQuery().split("&"))
                 .filter(s -> s.split("=").length == 2)
                 .collect(Collectors.toMap(s -> s.split("=")[0], s -> s.split("=")[1]));
-        if (params.containsKey(GherkinScenario.ScenarioPosition.RULE_INDEX)
-                && params.containsKey(GherkinScenario.ScenarioPosition.ORDINAL)
-                && params.containsKey(GherkinScenario.ScenarioPosition.TABLE_INDEX)) {
-            int tableIndex = Integer.parseInt(params.get(GherkinScenario.ScenarioPosition.TABLE_INDEX));
-            for (Info info : listOfInfo) {
-                testItems.forEach(testItem -> {
-                    hierarchicalTest.addTestResult(
-                            uri,
-                            info,
-                            testItem,
-                            Integer.parseInt(params.get(GherkinScenario.ScenarioPosition.RULE_INDEX)),
-                            Integer.parseInt(params.get(GherkinScenario.ScenarioPosition.ORDINAL)),
-                            tableIndex);
-                });
-
-            }
-            return;
+        try {
+            return new GherkinScenario.ScenarioPosition(Integer.parseInt(params.get(GherkinScenario.ScenarioPosition.RULE_INDEX)),
+                    Integer.parseInt(params.get(GherkinScenario.ScenarioPosition.ORDINAL)),
+                            Integer.parseInt(params.get(GherkinScenario.ScenarioPosition.TABLE_INDEX))
+                    );
+        } catch (RuntimeException e) {
+            return DEFAULT_POSITION;
         }
-        throw new IllegalStateException("Could not find parameters for " + uri);
     }
 
     private static List<String> extractTags(Collection<String> tags, String prefix) {
@@ -516,12 +594,12 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
                 .filter(Optional::isPresent)
                 .map(Optional::get)
                 .map(Object::toString)
-                .collect(Collectors.toList());
+                .toList();
     }
 
     public Collection<XrayTestExecutionResult> getXrayPayload() {
-        return testCaseXrayTestExecutionResultMap.entrySet().stream()
-                .flatMap(e -> e.getValue().Info2Results().stream())
+        return testCaseXrayTestExecutionResultMap.values().stream()
+                .flatMap(s -> s.info2Results().stream())
                 .toList();
     }
 
