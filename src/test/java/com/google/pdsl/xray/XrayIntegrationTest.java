@@ -22,15 +22,14 @@ import org.junit.jupiter.engine.descriptor.PdslConfigParameter;
 import org.junit.jupiter.engine.descriptor.PdslExecutable;
 import org.junit.jupiter.engine.descriptor.PdslGherkinInvocationContextProvider;
 import org.junit.jupiter.engine.descriptor.PdslTestParameter;
+
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
@@ -56,6 +55,7 @@ limitations under the License.
  */
 public class XrayIntegrationTest {
 
+  private static final Properties properties = initProperties();
 
   private static final XrayAuth xrayAuth =  XrayAuth.fromPropertiesFile("src/test/resources/xray.properties");
   private static final XrayTestResultUpdater updater = new XrayTestResultUpdater.Builder(
@@ -65,15 +65,15 @@ public class XrayIntegrationTest {
                   End to end tests for the pdsl-xray plugin.
                   These tests support the gherkin protocol both through special fields in 
                   the examples table or tags directly above scenarios:
-                  |xray-test-plan | xray-test-case |  xray-test-platform  | xray-test-env |
+                  |xray-test-plan | xray-test-case | xray-test-env |
                   """,
           () -> Map.of(
                   "fields", Map.of(
-                         "project", Map.of("key", xrayAuth.getProperties().getProperty("xray.project.key")),
+                         "project", Map.of("key", properties.get("xray.project.key")),
                          "summary", "Automated test run by Polymorphic DSL Test Framework",
                           "issuetype", Map.of("name", "Test Execution"),
-                          "assignee", Map.of("accountId", xrayAuth.getProperties().getProperty("xray.reporter.accountId")),
-                          "reporter", Map.of("accountId", xrayAuth.getProperties().getProperty("xray.reporter.accountId"))
+                          "assignee", Map.of("accountId", properties.get("xray.reporter.accountId")),
+                          "reporter", Map.of("accountId", properties.get("xray.reporter.accountId"))
                           )
           )).withXrayAuth(xrayAuth)
       .build();
@@ -83,6 +83,16 @@ public class XrayIntegrationTest {
   private static final PickleJarFactory PICKLE_JAR_FACTORY = init();
   private static final Supplier<ParseTreeListener> parseTreeListenerSupplier = AllGrammarsParserBaseListener::new;
 
+  private static Properties initProperties() {
+    Properties properties = new Properties();
+    try {
+      properties.load(new FileInputStream("src/test/resources/xray.properties"));
+      return properties;
+    } catch (IOException e) {
+      throw new IllegalStateException(e);
+    }
+  }
+
   private static PickleJarFactory init() {
 
     traceableTestRunExecutor.registerObserver(updater);
@@ -91,6 +101,7 @@ public class XrayIntegrationTest {
     PICKLE_JAR_FACTORY.registerObserver(updater);
     return PICKLE_JAR_FACTORY;
   }
+
   @TestTemplate
   @ExtendWith(IosExtension.class)
   public void iosTest(PdslExecutable executable) {
@@ -131,9 +142,6 @@ public class XrayIntegrationTest {
 
     @Override
     public Stream<TestTemplateInvocationContext> provideTestTemplateInvocationContexts(ExtensionContext context) {
-      if (true) {
-        return new ArrayList<TestTemplateInvocationContext>().stream();
-      }
       return getInvocationContext(createParameterWithTag("@ios")).stream();
     }
   }

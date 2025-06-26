@@ -119,11 +119,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
             Preconditions.checkNotNull(title, "title must not be null");
             XrayAuth auth = xrayAuth.orElse(
                     XrayAuth.fromPropertiesFile("src/test/resources/xray.properties"));
-            Set<String> envs = environments.orElseGet(() -> Arrays.stream(
-                            auth.getProperties().get("xray.environments")
-                                    .toString()
-                                    .split(","))
-                    .collect(Collectors.toSet()));
+            Set<String> envs = environments.orElse(Set.of());
             return new XrayTestResultUpdater(this);
         }
 
@@ -310,6 +306,8 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
                     String sources = permutationEntry.getValue().stream()
                             .map(TestPermutation::source)
                             .map(URI::getPath)
+                            .collect(Collectors.toSet())
+                            .stream()
                             .collect(Collectors.joining(String.format("%n")));
 
                     // Permutations could conceivably have come from multiple files and have multiple test plans/test cases
@@ -488,18 +486,12 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
     }
 
     /**
-     * Retrieves the Xray report URL from the properties file.
+     * Retrieves the Xray report URL used by the updater.
      *
      * @return The Xray report URL.
-     * @throws RuntimeException If the properties file or URL is not found.
      */
     private String getXrayReportUrl() {
-        prop = this.xrayAuth.getProperties();
-        String apiUrl = prop.getProperty("xray.api.report.url");
-        if (apiUrl == null) {
-            throw new RuntimeException("xray.api.url must be defined in the properties file.");
-        }
-        return apiUrl;
+        return "https://xray.cloud.getxray.app/api/v2/import/execution/multipart";
     }
 
     /**

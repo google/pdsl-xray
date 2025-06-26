@@ -31,18 +31,13 @@ public class XrayAuth {
 
   private static final HttpClient client = HttpClient.newHttpClient();
 
-  public Properties getProperties() {
-    return properties;
-  }
-
-  private static final Properties properties = new Properties();
+  private final Properties properties = new Properties();
   private final String xrayUrl;
   private String authToken;
   private final String clientId;
   private final String clientSecret;
-  private final long tokenExpirationTime = 0;
 
-  /**
+    /**
    * Constructor for XrayAuth.
    *
    * @param xrayUrl The URL of the Xray API endpoint for authentication.
@@ -62,11 +57,10 @@ public class XrayAuth {
    * @return The Xray authentication token.
    */
   public String getAuthToken() {
-    if (authToken == null || (System.currentTimeMillis() >= tokenExpirationTime
-        && tokenExpirationTime != 0)) {
-      fetchAuthToken();
-    }
-    return authToken;
+      if (authToken == null) {
+        fetchAuthToken();
+      }
+      return authToken;
   }
 
   /**
@@ -104,20 +98,6 @@ public class XrayAuth {
   }
 
   /**
-   * Loads Xray properties from the specified properties file.
-   *
-   * @param propertiesFilePath The path to the Xray properties file.
-   * @throws RuntimeException If an error occurs while loading the properties file.
-   */
-  private static void loadXrayProperties(String propertiesFilePath) {
-    try {
-      properties.load(new FileInputStream(propertiesFilePath));
-    } catch (IOException e) {
-      throw new RuntimeException(e);
-    }
-  }
-
-  /**
    * Creates an XrayAuth instance from a properties file.
    *
    * @param propertiesFilePath The path to the Xray properties file.
@@ -125,8 +105,12 @@ public class XrayAuth {
    * @throws RuntimeException If required properties are missing from the file.
    */
   public static XrayAuth fromPropertiesFile(String propertiesFilePath) {
-
-    loadXrayProperties(propertiesFilePath);
+    Properties properties = new Properties();
+    try {
+      properties.load(new FileInputStream(propertiesFilePath));
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
     String xrayUrl = properties.getProperty("xray.api.url");
     String clientId = properties.getProperty("xray.client.id");
     String clientSecret = properties.getProperty("xray.client.secret");
@@ -135,6 +119,5 @@ public class XrayAuth {
           "xray.client.id, xray.client.secret and xray.api.url must be defined in the properties file.");
     }
     return new XrayAuth(xrayUrl, clientId, clientSecret);
-
   }
 }

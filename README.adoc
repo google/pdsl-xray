@@ -1,0 +1,227 @@
+= XRAY Integration for Polymorphic DSL
+
+XRAY is a Test Management System. This repository allows it to integrate with the Polymorphic DSL library.
+
+== Using the Library
+
+=== Marking Feature Files
+
+The PDSL-XRAY library allows you to use tags and optionally column names in your example tables.
+
+There are currently 3 ways to associate a test with xray:
+
+[cols=4]
+|===
+Tag | Required? | Multiple Allowed? | Example |
+xray-test-case | yes | No | @xray-test-case=PROJ-12345 |
+xray-test-plan | No | Yes  | @xray-test-plan=PROJ-6789  |
+xray-test-env | No  | Yes | @xray-test-env=DEV,TST
+
+@xray-test-env=android |
+
+|===
+
+The associations can be done either with a normal gherkin tag, a tabular parameter, or both:
+
+By default a new execution will be created for however many groups of tests
+are extracted from the feature file. This is elaborated in more detail in the below feature
+file example, but the short answer is you will have a number of executions equal to  `[Distinct Test Plans] x
+[Distinct Test Environment Combinations]`
+
+Each test execution will contain whichever test cases had both the common test plan and the environment combinations as a parent.
+
+[source,gherkin]
+--
+
+Feature:
+  Multiple test executions are created for each test plan and environment combinations
+
+  # All nested scenarios and examples in this rule will be associated with this plan
+  @xray-test-plan=PROJ-123
+  Rule:
+  @xray-test-case=PROJ-000
+  @xray-test-env=TST
+  Scenario: This scenario will be:
+    - Associated with test plan PROJ-000
+    - Associated with test case PROJ-30
+    - Associated with test environment TST
+
+    Given a test
+
+  @xray-test-plan=PROJ-111
+  Scenario: Mobile scenarios
+    These scenarios will all have MULTIPLE test plans associated with them
+    - PROJ-000 since it was defined at the root level
+    - PROJ-111 since it was tagged to this specific scenario
+    The below scenarios generate more permutations because of the test environments.
+    There will be a test execution created per plan and environment permutation.
+    In this case, the below environments are:
+    - Android,TST
+    - iOS,TST
+    In total, 4 executions will be created:
+    - PROJ-000 with Android,TST
+    - PROJ-000 with iOS,TST
+    - PROJ-111 with Android,TST
+    - PROJ-111 with iOS,TST
+    Each execution will contain whatever test cases were associated with these permutations.
+    In this case each of the android test executions will contain 3 test cases because there were
+    3 test cases for these environments.
+
+    There will be 2 test cases for each iOS execution for the same reason. Note that the iOS
+    test cases have overlapping test cases with Android! This is okay because XRAY differentiates
+    the executions by environment.
+
+    Given test permutation <PERMUTATION>
+
+    @xray-test-env=Android,TST # This scenario will be part of a distinct execution for Android,TST
+    Examples: Android
+    | PERMUTATION | XRAY-TEST-CASE | # The test case is specified as a column
+    | A           | PROJ-10        |
+    | B           | PROJ-11        |
+    | C           | PROJ-12        |
+
+   @xray-test-env=iOS,TST
+   | PERMUTATION | XRAY-TEST-CASE |
+   | D           | PROJ-10        |
+   | E           | PROJ-11        |
+
+
+   Rule: You can specify ALL of the details as parameters
+
+    Scenario: Tabular parameters
+
+      Every parameter can be specified as a tabular parameter if desired.
+      Note the below scenarios each have a common test plan, but the environments are different.
+      There will be 2 test executions created because of this difference!
+
+      If you must group tests together in the same execution make sure they have
+      the same test plan AND environment(s)!
+      Be aware of the inheritance of gherkin tags! This is part of the gherking specification itself!
+
+      Given the test permutation <PERMUTATION>
+
+    Examples:
+    | PERMUTATION | XRAY-TEST-PLAN | XRAY-TEST-ENV | XRAY-TEST-CASE |
+    |  F          | PROJ-222       | TST           | PROJ-13        |
+    |  G          | PROJ-222       | TST,Desktop   | PROJ-13        |
+    # Note the above 2 rows will have their test cases in separate executions
+    # because the environments are not completely identical! Just because
+    # they both run in TST does not allow them to consolidate into the same execution!
+
+--
+
+=== Setting up PDSL with XRAY
+
+==== Xray Authentication
+
+First make an `XrayAuth` object. In both cases you'll need a Client ID & Client Secret for the XRAY API.
+
+There are two ways to create the object.
+
+===== Recommended Method
+
+`XrayAuth(String xrayUrl, String clientId, String clientSecret)`
+
+The `xrayUrl` is the the instance of the V2 REST API you want to use, which realistically will be the production
+instance at https://xray.cloud.getxray.app/api/v2/authenticate
+
+The client ID and client secret will be unique to your instance. Note the proper way
+to use of the client secret is NOT to encode it directly into the application
+but to have it stored in a secret manager and retrieved at runtime.
+
+===== Alternate Method
+
+Use a properties file and pass the path to it:
+
+Cf.
+
+_src/test/resources/xray.properties_
+[source,properties]
+--
+xray.client.id=463F1FE1456647DA877602D921A67318
+xray.client.secret=<your secret value>
+xray.api.url=https://xray.cloud.getxray.app/api/v2/authenticate
+--
+
+
+`XrayAuth.fromPropertiesFile("src/test/resources/xray.properties")`
+
+==== Xray Updater
+
+This is the thing that actually monitors your test execution and can
+update XRAY with the results when you tell it to.
+
+Use the Builder object to set any fields you care about.
+
+[cols=3]
+|===
+Field | Description | Required |
+XRAY Auth | The object used to authenticate with XRAY. See the above section on how to create. | Yes |
+Title | A one line summary of your execution in XRAY | Yes |
+Description | A multiline summmary of your execution | Yes |
+Field Supplier | A provider of key-value pairs for JIRA fields related to your instance.
+
+This includes things like the ID of the user the execution will be associated with. A project key is necessary! | Yes |
+Temp Directory | The V2 REST API uses the multipart upload which requires a file on the hard drive. By default this is the system temp directory. The files will be created when the publishing action is triggered and are marked for deletion if the execution is allowed to complete. | No |
+
+Properties Path | If you decide to use a properties file this is the path to it.
+
+Note that the XRAY auth object has a handle on the systems default properties regardless of whether it was created with a propreties file or not.
+| No |
+
+Object Mapper | The serializer that turns the underlying objects into a JSON payload. It is unlikely that you need this. | No |
+|===
+
+[source,java]
+--
+private static final XrayTestResultUpdater updater = new XrayTestResultUpdater.Builder(
+
+          "PDSL-XRAY Plugin E2E Tests",
+          """
+                  End to end tests for the pdsl-xray plugin.
+                  These tests support the gherkin protocol both through special fields in
+                  the examples table or tags directly above scenarios:
+                  |xray-test-plan | xray-test-case | xray-test-env |
+                  """,
+          () -> Map.of(
+                  "fields", Map.of(
+                         "project", Map.of("key", xrayAuth.getProperties().getProperty("xray.project.key")),
+                         "summary", "Automated test run by Polymorphic DSL Test Framework",
+                          "issuetype", Map.of("name", "Test Execution"),
+                          "assignee", Map.of("accountId", xrayAuth.getProperties().getProperty("xray.reporter.accountId")),
+                          "reporter", Map.of("accountId", xrayAuth.getProperties().getProperty("xray.reporter.accountId"))
+                          )
+          )).withXrayAuth(xrayAuth)
+      .build();
+--
+
+=== Create a Test Executor & Custom Factory
+
+The PDSL default executor is what actually triggers your tests. It allows you to attach an observer to it so that it can respond to various events.
+
+The test specification factory is what is reading your gherkin file and can also have an observer attached.
+
+Your `XrayTestResultUpdater` is intended to act as an observer for _both_
+of these objects. You will need to register it with them.
+
+Cf.
+
+[source, java]
+--
+private static final DefaultPolymorphicDslTestExecutor traceableTestRunExecutor = new DefaultPolymorphicDslTestExecutor();
+--
+
+
+
+=== Concrete Example
+
+link:src/test/java/com/google/pdsl/xray/XrayIntegrationTest.java[XrayIntegrationTest.java]
+
+== Development
+
+=== Generate the source code
+
+Run `mvn antlr4:antlr4` to generate the code needed to run the tests
+If you still have compilation errors in your IDE, you probably need to mark the directory ./target/generated-sources/antlr4 as a test sources root
+
+a
