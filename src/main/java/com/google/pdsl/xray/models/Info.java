@@ -17,5 +17,4 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-public record Info(String summary, String description, String testPlanKey,
-                   Set<String> testEnvironments) { }
+public record Info(String summary, String description, String testPlanKey, Set<String> testEnvironments) {}

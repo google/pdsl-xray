@@ -1,9 +1,10 @@
 package com.google.pdsl.xray.core;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
 import com.google.pdsl.xray.models.Info;
-import com.google.pdsl.xray.models.XrayTestExecutionResult;
+import com.google.pdsl.xray.models.XrayTestExecution;
 import com.google.pdsl.xray.models.XrayTestResult;
 import com.pdsl.executors.ExecutorObserver;
 import com.pdsl.gherkin.GherkinObserver;
@@ -120,6 +121,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
             XrayAuth auth = xrayAuth.orElse(
                     XrayAuth.fromPropertiesFile("src/test/resources/xray.properties"));
             Set<String> envs = environments.orElse(Set.of());
+            this.objectMapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
             return new XrayTestResultUpdater(this);
         }
 
@@ -208,7 +210,8 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         }
     }
 
-    private record TestItem(String title, String testKey, String status, String testPlan, Set<String> environments,
+    private record TestItem(String title, String testKey, String status, String testPlanKey, String testExecutionKey,
+                            Set<String> environments,
                             List<String> stepDescription,
                             Throwable throwable,
                             Integer failedStepIndex) {
@@ -274,7 +277,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
          * Creates XrayTestExecutionResult objects based on any added test results in the past.
          * @return
          */
-        Collection<XrayTestExecutionResult> info2Results() {
+        Collection<XrayTestExecution> info2Results() {
             // The permutations contain all the information about that is needed to put them in a hierarchy.
             // Consolidate across different test groups and create an execution:
             // per Test Plan
@@ -290,7 +293,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
             // The below translates to Map<TestPlanKey, Map<EnvironmentSet, List<TestPermutation>>
             Map<String, Map<Set<String>, List<TestPermutation>>> permutations = new HashMap<>();
             testResults.forEach(p ->
-                    permutations.computeIfAbsent(p.result.testPlan, (k) -> new HashMap<>()) // Group by test plan
+                    permutations.computeIfAbsent(p.result.testPlanKey, (k) -> new HashMap<>()) // Group by test plan
                             .computeIfAbsent(p.result.environments, (k) -> new ArrayList<>()) // Then environment
                             .add(p));
 
@@ -300,7 +303,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
                     .forEach(e -> e.sort(Comparator.comparingInt(p -> p.permutationNumber)));
 
             // Finally, create an execution result per test plan & environment combination
-            List<XrayTestExecutionResult> results = new ArrayList<>();
+            List<XrayTestExecution> results = new ArrayList<>();
             for (Map.Entry<String, Map<Set<String>, List<TestPermutation>>> entry : permutations.entrySet()) {
                 for (Map.Entry<Set<String>, List<TestPermutation>> permutationEntry : entry.getValue().entrySet()) {
                     String sources = permutationEntry.getValue().stream()
@@ -333,10 +336,12 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
                                 .toList();
                             xrayTestResults.add(new XrayTestResult(e.getKey(), calculateOverallStatus(examplesResults, xrayStatuses), examplesResults));
                         }
-                        results.add(new XrayTestExecutionResult(new Info(
+                        results.add(
+                                new XrayTestExecution(permutationEntry.getValue().getFirst().result.testExecutionKey,
+                                new Info(
                                 String.format("Automated tests from sources:%n%s", sources),
                                 description,
-                                permutationEntry.getValue().getFirst().result.testPlan,
+                                permutationEntry.getValue().getFirst().result.testPlanKey,
                                 permutationEntry.getKey()),
                                 xrayTestResults));
                     }
@@ -345,8 +350,6 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
             return results;
         }
     }
-
-
 
     private static List<XrayTestResult.Iteration.XrayStep> iterationStepsFromPermutation(HierarchicalTestSuite.TestPermutation p) {
         List<XrayTestResult.Iteration.XrayStep> steps = new ArrayList<>();
@@ -385,6 +388,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         addTags(tags, substitutions, "<xray-test-plan>");
         addTags(tags, substitutions, "<xray-test-case>");
         addTags(tags, substitutions, "<xray-test-env>");
+        addTags(tags, substitutions, "<xray-test-execution>");
     }
 
     private static void addTags(Set<String> tags, Map<String, String> substitutions, String key) {
@@ -396,7 +400,6 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
             }
         }
     }
-
 
     /**
      * Publishes the test execution reports to Xray.
@@ -437,7 +440,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
                     StandardOpenOption.CREATE_NEW);
             info.toFile().deleteOnExit();
             for (HierarchicalTestSuite suite : testCaseXrayTestExecutionResultMap.values()) {
-                for (XrayTestExecutionResult executionResult : suite.info2Results()) {
+                for (XrayTestExecution executionResult : suite.info2Results()) {
                     String requestBody = objectMapper.writeValueAsString(executionResult);
                     // Convert the request to files as per the xray API specification
                     Path results = Files.writeString(tempDirectory.resolve(Path.of(String.format("results-%s.json", UUID.randomUUID()))),
@@ -504,7 +507,6 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         for (TestResult result : results) {
             TestCase testCase = result.getTestCase();
             if (testCase instanceof TaggedTestCase taggedTestCase) {
-
                 Set<String> testPlanTags = new HashSet<>(extractTags(taggedTestCase.getTags(), "@xray-test-plan="));
                 if (testPlanTags.size() > 1) {
                     throw new IllegalArgumentException(String.format("""
@@ -517,6 +519,19 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
                             
                             """, testCase.getOriginalSource(), testCase.getTestTitle(), taggedTestCase.getTags()));
                 }
+                Set<String> testExecutionTags = new HashSet<>(extractTags(taggedTestCase.getTags(), "@xray-test-execution="));
+                if (testExecutionTags.size() > 1) {
+                    throw new IllegalArgumentException(String.format("""
+                            Only one test execution can be associated with a test case!
+                            Problem Test-
+                            %s
+                            %s
+                            
+                            Tags: %s
+                            
+                            """, testCase.getOriginalSource(), testCase.getTestTitle(), taggedTestCase.getTags()));
+                }
+
                 Set<String> envTags = extractTags(taggedTestCase.getTags(), "@xray-test-env=").stream()
                         .map(s -> Arrays.asList(s.split(",")))
                         .flatMap(Collection::stream)
@@ -534,6 +549,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
                                 t,
                                 result.getStatus().toString(),
                                 testPlan.key,
+                                testExecutionTags.stream().findFirst().orElse(null),
                                 envTags.isEmpty() ? environments : envTags,
                                 testCase.getUnfilteredPhraseBody(),
                                 result.getFailureReason().orElse(null),
@@ -554,7 +570,6 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
                 }
             }
         }
-
 
     private static final GherkinScenario.ScenarioPosition DEFAULT_POSITION = new GherkinScenario.ScenarioPosition(-1, -1, -1);
     private GherkinScenario.ScenarioPosition getPosition(URI uri) {
@@ -589,7 +604,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
                 .toList();
     }
 
-    public Collection<XrayTestExecutionResult> getXrayPayload() {
+    public Collection<XrayTestExecution> getXrayPayload() {
         return testCaseXrayTestExecutionResultMap.values().stream()
                 .flatMap(s -> s.info2Results().stream())
                 .toList();
