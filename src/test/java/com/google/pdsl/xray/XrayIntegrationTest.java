@@ -26,8 +26,6 @@ import org.junit.jupiter.engine.descriptor.PdslTestParameter;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.function.Supplier;
@@ -59,11 +57,10 @@ public class XrayIntegrationTest {
 
   private static final XrayAuth xrayAuth =  XrayAuth.fromPropertiesFile("src/test/resources/xray.properties");
   private static final XrayTestResultUpdater updater = new XrayTestResultUpdater.Builder(
-
           "PDSL-XRAY Plugin E2E Tests",
           """
                   End to end tests for the pdsl-xray plugin.
-                  These tests support the gherkin protocol both through special fields in 
+                  These tests support the gherkin protocol both through special fields in
                   the examples table or tags directly above scenarios:
                   |xray-test-plan | xray-test-case | xray-test-env |
                   """,
@@ -94,9 +91,7 @@ public class XrayIntegrationTest {
   }
 
   private static PickleJarFactory init() {
-
     traceableTestRunExecutor.registerObserver(updater);
-
     PickleJarFactory PICKLE_JAR_FACTORY = PickleJarFactory.getDefaultPickleJarFactory();
     PICKLE_JAR_FACTORY.registerObserver(updater);
     return PICKLE_JAR_FACTORY;
@@ -145,7 +140,6 @@ public class XrayIntegrationTest {
       return getInvocationContext(createParameterWithTag("@ios")).stream();
     }
   }
-
 
   private static class AndroidExtension extends PdslGherkinInvocationContextProvider {
     @Override

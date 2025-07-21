@@ -14,7 +14,8 @@ There are currently 3 ways to associate a test with xray:
 |===
 Tag | Required? | Multiple Allowed? | Example |
 xray-test-case | yes | No | @xray-test-case=PROJ-12345 |
-xray-test-plan | No | Yes  | @xray-test-plan=PROJ-6789  |
+xray-test-plan | No | No  | @xray-test-plan=PROJ-6789  |
+xray-test-execution | No | No  | @xray-test-execution=PROJ-1234  |
 xray-test-env | No  | Yes | @xray-test-env=DEV,TST
 
 @xray-test-env=android |
@@ -38,6 +39,7 @@ Feature:
 
   # All nested scenarios and examples in this rule will be associated with this plan
   @xray-test-plan=PROJ-123
+  @xray-test-execution=GFENG-1234
   Rule:
   @xray-test-case=PROJ-000
   @xray-test-env=TST
@@ -49,7 +51,7 @@ Feature:
     Given a test
 
   @xray-test-plan=PROJ-111
-  Scenario: Mobile scenarios
+  Scenario Outline: Mobile scenarios
     These scenarios will all have MULTIPLE test plans associated with them
     - PROJ-000 since it was defined at the root level
     - PROJ-111 since it was tagged to this specific scenario
@@ -88,7 +90,7 @@ Feature:
 
    Rule: You can specify ALL of the details as parameters
 
-    Scenario: Tabular parameters
+    Scenario Outline: Tabular parameters
 
       Every parameter can be specified as a tabular parameter if desired.
       Note the below scenarios each have a common test plan, but the environments are different.
@@ -101,9 +103,9 @@ Feature:
       Given the test permutation <PERMUTATION>
 
     Examples:
-    | PERMUTATION | XRAY-TEST-PLAN | XRAY-TEST-ENV | XRAY-TEST-CASE |
-    |  F          | PROJ-222       | TST           | PROJ-13        |
-    |  G          | PROJ-222       | TST,Desktop   | PROJ-13        |
+    | PERMUTATION | XRAY-TEST-PLAN | XRAY-TEST-EXECUTION | XRAY-TEST-ENV | XRAY-TEST-CASE |
+    |  F          | PROJ-222       | PROJ-1234           | TST           | PROJ-13        |
+    |  G          | PROJ-222       | PROJ-1234           | TST,Desktop   | PROJ-13        |
     # Note the above 2 rows will have their test cases in separate executions
     # because the environments are not completely identical! Just because
     # they both run in TST does not allow them to consolidate into the same execution!
@@ -181,7 +183,7 @@ private static final XrayTestResultUpdater updater = new XrayTestResultUpdater.B
                   End to end tests for the pdsl-xray plugin.
                   These tests support the gherkin protocol both through special fields in
                   the examples table or tags directly above scenarios:
-                  |xray-test-plan | xray-test-case | xray-test-env |
+                  |xray-test-plan | xray-test-execution | xray-test-case | xray-test-env |
                   """,
           () -> Map.of(
                   "fields", Map.of(
