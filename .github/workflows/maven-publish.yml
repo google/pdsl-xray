@@ -28,7 +28,7 @@ jobs:
         gpg-passphrase: ${{ secrets.GPG_PASSPHRASE }}
 
     - name: Build and Publish to Maven Central
-      run: mvn clean deploy -Prelease -DskipTests
+      run: mvn clean antlr4:antlr4 deploy -Prelease -DskipTests
       # -Prelease activates the release profile if you have one.
       # -DskipTests skips tests during deployment, often desired for releases.
       env:
