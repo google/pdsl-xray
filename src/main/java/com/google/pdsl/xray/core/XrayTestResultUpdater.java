@@ -401,92 +401,184 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         }
     }
 
-    /**
-     * Publishes the test execution reports to Xray.
-     * <p>
-     * This will result in multiple calls to the XRAY API.
-     * There will be 1 execution generated per set of environments.
-     * <p>
-     * E.g. if you have 3 tests with the following environments:
-     * #1 DEV, TST
-     * #2 DEV
-     * #3 TST
-     * <p>
-     * there will be 3 executions created. The implementation cannot
-     * consolidate this down to 2 executions based on the shared environments because
-     * some users of XRAY will specify operations systems (such as iOS or Android) with
-     * the environments. Currently we have no feature that allows us to distinguish between
-     * environments we could safely factor out and combine with other executions and others
-     * that must be coupled to their original groups of environments.
-     *
-     * @return List of HTTPResponse: the responses from each attempt to create a test execution
-     */
-    public List<org.apache.http.HttpResponse> publishReportsToXray() {
-        List<org.apache.http.HttpResponse> responses = new ArrayList<>();
-        boolean debugging = false;
-        if (debugging) {
-            System.setProperty("org.apache.commons.logging.Log", "org.apache.commons.logging.impl.SimpleLog");
-            System.setProperty("org.apache.commons.logging.simplelog.showdatetime", "true");
-            System.setProperty("org.apache.commons.logging.simplelog.log.org.apache.http.wire", "DEBUG");
-            System.setProperty("org.apache.commons.logging.simplelog.log.org.apache.http.impl.conn", "DEBUG");
-            System.setProperty("org.apache.commons.logging.simplelog.log.org.apache.http.impl.client", "DEBUG");
-            System.setProperty("org.apache.commons.logging.simplelog.log.org.apache.http.client", "DEBUG");
-            System.setProperty("org.apache.commons.logging.simplelog.log.org.apache.http", "DEBUG");
-        }
-
-        try {
-            Path info = Files.writeString(tempDirectory.resolve(String.format("info-%s.json", UUID.randomUUID())),
-                    objectMapper.writeValueAsString(fieldSupplier.get()), Charsets.UTF_8,
-                    StandardOpenOption.CREATE_NEW);
-            info.toFile().deleteOnExit();
-            for (HierarchicalTestSuite suite : testCaseXrayTestExecutionResultMap.values()) {
-                for (XrayTestExecution executionResult : suite.info2Results()) {
-                    String requestBody = objectMapper.writeValueAsString(executionResult);
-                    // Convert the request to files as per the xray API specification
-                    Path results = Files.writeString(tempDirectory.resolve(Path.of(String.format("results-%s.json", UUID.randomUUID()))),
-                            requestBody, Charsets.UTF_8,
-                            StandardOpenOption.CREATE_NEW);
-                    results.toFile().deleteOnExit();
-
-                    HttpPost post = new HttpPost(getXrayReportUrl());
-                    post.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + xrayAuth.getAuthToken());
-                    post.addHeader(HttpHeaders.CONTENT_TYPE, String.format("%s; boundary=%s",
-                            ContentType.MULTIPART_FORM_DATA.getMimeType(),
-                            "X-PDSL-XRAY-PLUGIN-BOUNDARY"));
-                    post.addHeader(HttpHeaders.ACCEPT, "*/*");
-                    post.addHeader(HttpHeaders.ACCEPT_ENCODING, "*/*");
-
-                    post.setEntity(MultipartEntityBuilder.create()
-                            .addBinaryBody("results", results.toFile(), ContentType.APPLICATION_JSON, results.getFileName().toString())
-                            .addBinaryBody("info", info.toFile(), ContentType.APPLICATION_JSON, info.getFileName().toString())
-                            .setLaxMode()
-                            .setBoundary("X-PDSL-XRAY-PLUGIN-BOUNDARY")
-                            .setCharset(StandardCharsets.UTF_8)
-                            .build());
-                    try (CloseableHttpClient client = HttpClients.createDefault();
-                         CloseableHttpResponse response = client
-                                 .execute(post)) {
-                        responses.add(response);
-                        final int statusCode = response.getStatusLine().getStatusCode();
-                        if (statusCode >= 200 && statusCode < 300) {
-                            logger.info(String.format("Xray test execution results imported successfully\n%s%n",
-                                    new String(response.getEntity().getContent().readAllBytes())));
-                        } else {
-                            logger.severe(String.format("Failed to import Xray test execution results: %s - %s%n",
-                                    response.getStatusLine(), new String(response.getEntity().getContent().readAllBytes())));
-                        }
-                    }
-                    @SuppressWarnings("unused") boolean unused = results.toFile().delete();
-                }
-            }
-            @SuppressWarnings("unused") boolean unused = info.toFile().delete();
-            testCaseXrayTestExecutionResultMap.clear();
-            tempDirectory.toFile().deleteOnExit();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-        return responses;
+  /**
+   * Publishes the test execution reports to Xray.
+   * <p>
+   * This will result in multiple calls to the XRAY API.
+   * There will be 1 execution generated per set of environments.
+   * <p>
+   * E.g. if you have 3 tests with the following environments:
+   * #1 DEV, TST
+   * #2 DEV
+   * #3 TST
+   * <p>
+   * there will be 3 executions created. The implementation cannot
+   * consolidate this down to 2 executions based on the shared environments because
+   * some users of XRAY will specify operations systems (such as iOS or Android) with
+   * the environments. Currently we have no feature that allows us to distinguish between
+   * environments we could safely factor out and combine with other executions and others
+   * that must be coupled to their original groups of environments.
+   *
+   * @return List of HTTPResponse: the responses from each attempt to create a test execution
+   */
+  public List<org.apache.http.HttpResponse> publishReportsToXray() {
+    List<org.apache.http.HttpResponse> responses = new ArrayList<>();
+    boolean debugging = false;
+    if (debugging) {
+      System.setProperty("org.apache.commons.logging.Log", "org.apache.commons.logging.impl.SimpleLog");
+      System.setProperty("org.apache.commons.logging.simplelog.showdatetime", "true");
+      System.setProperty("org.apache.commons.logging.simplelog.log.org.apache.http.wire", "DEBUG");
+      System.setProperty("org.apache.commons.logging.simplelog.log.org.apache.http.impl.conn", "DEBUG");
+      System.setProperty("org.apache.commons.logging.simplelog.log.org.apache.http.impl.client", "DEBUG");
+      System.setProperty("org.apache.commons.logging.simplelog.log.org.apache.http.client", "DEBUG");
+      System.setProperty("org.apache.commons.logging.simplelog.log.org.apache.http", "DEBUG");
     }
+
+    Path info = null;
+
+    try {
+      info = Files.writeString(tempDirectory.resolve(String.format("info-%s.json", UUID.randomUUID())),
+        objectMapper.writeValueAsString(fieldSupplier.get()), Charsets.UTF_8,
+        StandardOpenOption.CREATE_NEW);
+      info.toFile().deleteOnExit();
+      for (HierarchicalTestSuite suite : testCaseXrayTestExecutionResultMap.values()) {
+        for (XrayTestExecution executionResult : suite.info2Results()) {
+          String requestBody = objectMapper.writeValueAsString(executionResult);
+          // Convert the request to files as per the xray API specification
+          Path results = Files.writeString(tempDirectory.resolve(Path.of(String.format("results-%s.json", UUID.randomUUID()))),
+            requestBody, Charsets.UTF_8,
+            StandardOpenOption.CREATE_NEW);
+          results.toFile().deleteOnExit();
+
+          try {
+            postXrayExecution(results, info, responses);
+          } finally {
+            @SuppressWarnings("unused") boolean unused = results.toFile().delete();
+          }
+        }
+      }
+      testCaseXrayTestExecutionResultMap.clear();
+      tempDirectory.toFile().deleteOnExit();
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    } finally {
+      if (info != null) {
+        @SuppressWarnings("unused") boolean unused = info.toFile().delete();
+      }
+    }
+    return responses;
+  }
+
+  /**
+   * Publishes all test execution reports to Xray as a single consolidated execution.
+   * <p>
+   * This will result in a single call to the XRAY API, creating one test execution
+   * containing all test results regardless of their original feature file groupings.
+   * This should be used when the execution grouping (e.g., by specific feature file)
+   * is not required in the Xray report, favoring consolidation over segmentation.
+   *
+   * @return List of HTTPResponse: the response from the single attempt to create a test execution
+   */
+  public List<org.apache.http.HttpResponse> publishConsolidatedReportsToXray() {
+    List<org.apache.http.HttpResponse> responses = new ArrayList<>();
+    boolean debugging = false;
+    if (debugging) {
+      System.setProperty("org.apache.commons.logging.Log", "org.apache.commons.logging.impl.SimpleLog");
+      System.setProperty("org.apache.commons.logging.simplelog.showdatetime", "true");
+      System.setProperty("org.apache.commons.logging.simplelog.log.org.apache.http.wire", "DEBUG");
+      System.setProperty("org.apache.commons.logging.simplelog.log.org.apache.http.impl.conn", "DEBUG");
+      System.setProperty("org.apache.commons.logging.simplelog.log.org.apache.http.impl.client", "DEBUG");
+      System.setProperty("org.apache.commons.logging.simplelog.log.org.apache.http.client", "DEBUG");
+      System.setProperty("org.apache.commons.logging.simplelog.log.org.apache.http", "DEBUG");
+    }
+
+    Path info = null;
+    Path results = null;
+
+    try {
+      info = Files.writeString(tempDirectory.resolve(String.format("info-%s.json", UUID.randomUUID())),
+        objectMapper.writeValueAsString(fieldSupplier.get()), Charsets.UTF_8,
+        StandardOpenOption.CREATE_NEW);
+      info.toFile().deleteOnExit();
+
+      Collection<XrayTestExecution> allExecutions = getXrayPayload();
+
+      if (allExecutions.isEmpty()) {
+        logger.info("No test results found to publish to Xray. Skipping publishing.");
+        @SuppressWarnings("unused") boolean unused = info.toFile().delete();
+        testCaseXrayTestExecutionResultMap.clear();
+        tempDirectory.toFile().deleteOnExit();
+        return responses;
+      }
+
+      XrayTestExecution masterExecution = allExecutions.iterator().next();
+      Set<XrayTestResult> consolidatedTests = new HashSet<>();
+
+      for (XrayTestExecution execution : allExecutions) {
+        consolidatedTests.addAll(execution.tests());
+      }
+
+      XrayTestExecution finalExecution = new XrayTestExecution(
+        masterExecution.testExecutionKey(),
+        masterExecution.info(),
+        consolidatedTests
+      );
+
+      String requestBody = objectMapper.writeValueAsString(finalExecution);
+
+      results = Files.writeString(tempDirectory.resolve(Path.of(String.format("results-%s.json", UUID.randomUUID()))),
+        requestBody, Charsets.UTF_8,
+        StandardOpenOption.CREATE_NEW);
+      results.toFile().deleteOnExit();
+
+      postXrayExecution(results, info, responses);
+
+      testCaseXrayTestExecutionResultMap.clear();
+      tempDirectory.toFile().deleteOnExit();
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    } finally {
+      if (results != null) {
+        @SuppressWarnings("unused") boolean unused = results.toFile().delete();
+      }
+      if (info != null) {
+        @SuppressWarnings("unused") boolean unusedInfo = info.toFile().delete();
+      }
+    }
+    return responses;
+  }
+
+  private void postXrayExecution(Path results, Path info, List<org.apache.http.HttpResponse> responses) throws IOException {
+    HttpPost post = new HttpPost(getXrayReportUrl());
+    post.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + xrayAuth.getAuthToken());
+    post.addHeader(HttpHeaders.CONTENT_TYPE, String.format("%s; boundary=%s",
+      ContentType.MULTIPART_FORM_DATA.getMimeType(),
+      "X-PDSL-XRAY-PLUGIN-BOUNDARY"));
+    post.addHeader(HttpHeaders.ACCEPT, "*/*");
+    post.addHeader(HttpHeaders.ACCEPT_ENCODING, "*/*");
+
+    post.setEntity(MultipartEntityBuilder.create()
+      .addBinaryBody("results", results.toFile(), ContentType.APPLICATION_JSON, results.getFileName().toString())
+      .addBinaryBody("info", info.toFile(), ContentType.APPLICATION_JSON, info.getFileName().toString())
+      .setLaxMode()
+      .setBoundary("X-PDSL-XRAY-PLUGIN-BOUNDARY")
+      .setCharset(StandardCharsets.UTF_8)
+      .build());
+
+    try (CloseableHttpClient client = HttpClients.createDefault();
+         CloseableHttpResponse response = client
+           .execute(post)) {
+      responses.add(response);
+      final int statusCode = response.getStatusLine().getStatusCode();
+      if (statusCode >= 200 && statusCode < 300) {
+        logger.info(String.format("Xray test execution results imported successfully\n%s%n",
+          new String(response.getEntity().getContent().readAllBytes())));
+      } else {
+        logger.severe(String.format("Failed to import Xray test execution results: %s - %s%n",
+          response.getStatusLine(), new String(response.getEntity().getContent().readAllBytes())));
+      }
+    }
+  }
 
     /**
      * Retrieves the Xray report URL used by the updater.
