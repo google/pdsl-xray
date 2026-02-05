@@ -31,10 +31,9 @@ limitations under the License.
 public class XrayAuth {
 
   private static final HttpClient client = HttpClient.newHttpClient();
-  private static final Long TOKEN_VALIDITY_HOURS = 23L;
-
   private final Properties properties = new Properties();
   private final String xrayUrl;
+  private Long tokenValidityHours = 23L;
   private String authToken;
   private LocalDateTime tokenCreationDate;
   private final String clientId;
@@ -61,10 +60,19 @@ public class XrayAuth {
    */
   public String getAuthToken() {
       if (authToken == null || tokenCreationDate == null
-              || LocalDateTime.now().minusHours(TOKEN_VALIDITY_HOURS).isAfter(tokenCreationDate)) {
+              || LocalDateTime.now().minusHours(tokenValidityHours).isAfter(tokenCreationDate)) {
         fetchAuthToken();
       }
       return authToken;
+  }
+
+  /**
+    * Set token validity hours value. Default value is 23 hours
+    *
+    * @param tokenValidityHours token validity value in hours
+    */
+  public void setTokenValidityHours(long tokenValidityHours) {
+      this.tokenValidityHours = tokenValidityHours;
   }
 
   /**
