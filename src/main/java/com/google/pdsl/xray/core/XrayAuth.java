@@ -8,6 +8,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.LocalDateTime;
 import java.util.Properties;
 /*
 Copyright 2025 Google LLC
@@ -30,10 +31,11 @@ limitations under the License.
 public class XrayAuth {
 
   private static final HttpClient client = HttpClient.newHttpClient();
-
   private final Properties properties = new Properties();
   private final String xrayUrl;
+  private Long tokenValidityHours = 23L;
   private String authToken;
+  private LocalDateTime tokenCreationDate;
   private final String clientId;
   private final String clientSecret;
 
@@ -57,10 +59,20 @@ public class XrayAuth {
    * @return The Xray authentication token.
    */
   public String getAuthToken() {
-      if (authToken == null) {
+      if (authToken == null || tokenCreationDate == null
+              || LocalDateTime.now().minusHours(tokenValidityHours).isAfter(tokenCreationDate)) {
         fetchAuthToken();
       }
       return authToken;
+  }
+
+  /**
+    * Set token validity hours value. Default value is 23 hours
+    *
+    * @param tokenValidityHours token validity value in hours
+    */
+  public void setTokenValidityHours(long tokenValidityHours) {
+      this.tokenValidityHours = tokenValidityHours;
   }
 
   /**
@@ -85,6 +97,7 @@ public class XrayAuth {
       String responseBody = response.body().replaceAll("\"", "");
 
       if (response.statusCode() >= 200 && response.statusCode() < 300) {
+        tokenCreationDate = LocalDateTime.now();
         this.authToken = responseBody;
       } else {
         throw new IllegalStateException(
