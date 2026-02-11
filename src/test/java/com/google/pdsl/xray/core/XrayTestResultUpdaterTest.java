@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Properties;
 import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -23,10 +24,11 @@ class XrayTestResultUpdaterTest {
     private XrayAuth xrayAuth;
 
     private XrayTestResultUpdater.Builder xrayTestResultUpdaterBuilder;
+    private Path tempDir;
 
     @BeforeEach
     void setUp() throws IOException {
-        Path tempDir = Files.createTempDirectory("xray-test");
+        tempDir = Files.createTempDirectory("xray-test");
         Supplier<Map<Object, Object>> fieldSupplier = () -> new HashMap<>() {{
             put("summary", "Test Summary");
             put("project", Map.of("key", "PDSL"));
@@ -43,5 +45,18 @@ class XrayTestResultUpdaterTest {
     @Test
     void build_withXrayAuth_doesNotThrowException() {
         assertDoesNotThrow(() -> xrayTestResultUpdaterBuilder.withXrayAuth(xrayAuth).build());
+    }
+
+    @Test
+    void build_withXrayAuthProperties_doesNotThrowException() throws IOException {
+        // Create a dummy properties file
+        Properties properties = new Properties();
+        properties.setProperty("xray.api.url", "http://localhost:8080");
+        properties.setProperty("xray.client.id", "dummy-id");
+        properties.setProperty("xray.client.secret", "dummy-secret");
+        Path propertiesFile = tempDir.resolve("xray_new.properties");
+        properties.store(Files.newOutputStream(propertiesFile), null);
+
+        assertDoesNotThrow(() -> xrayTestResultUpdaterBuilder.withPropertiesPath(propertiesFile).build());
     }
 }

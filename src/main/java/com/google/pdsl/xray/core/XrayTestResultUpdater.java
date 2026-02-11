@@ -63,6 +63,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
     private final Logger logger = Logger.getLogger(this.getClass().getName());
     private final Set<String> environments;
     private final String description;
+    private final String title;
     private final Supplier<Map<Object, Object>> fieldSupplier;
     private final Path tempDirectory;
     private final List<String> xrayStatuses;
@@ -90,9 +91,11 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         validateTempDirectory(tempDirectoryPath);
         this.tempDirectory = tempDirectoryPath;
         this.xrayAuth = builder.xrayAuth
-                .orElseThrow(IllegalArgumentException::new);
+                .or(() -> builder.prop.map(path -> XrayAuth.fromPropertiesFile(path.toAbsolutePath().toString())))
+                .orElseThrow(() -> new IllegalArgumentException("XrayAuth must be provided either as an object or as a properties file path."));
         this.environments = builder.environments.orElse(Set.of());
         this.description = builder.description;
+        this.title = builder.title;
         this.fieldSupplier = builder.fieldSupplier;
         this.objectMapper = builder.objectMapper;
         this.xrayStatuses = builder.xrayStatuses;
@@ -102,6 +105,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         private static final ObjectMapper defaultObjectMapper = new ObjectMapper();
         private Optional<XrayAuth> xrayAuth = Optional.empty();
         private ObjectMapper objectMapper = defaultObjectMapper;
+        private Optional<Path> prop = Optional.empty();
         private Optional<Set<String>> environments = Optional.empty();
         private String description;
         private String title;
@@ -156,6 +160,11 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
 
         public Builder withEnvironments(Set<String> environments) {
             this.environments = Optional.of(environments);
+            return this;
+        }
+
+        public Builder withPropertiesPath(Path path) {
+            this.prop = Optional.of(path);
             return this;
         }
 
