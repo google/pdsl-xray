@@ -31,7 +31,6 @@ limitations under the License.
 public class XrayAuth {
 
   private static final HttpClient client = HttpClient.newHttpClient();
-  private final Properties properties = new Properties();
   private final String xrayUrl;
   private Long tokenValidityHours = 23L;
   private String authToken;
