@@ -61,7 +61,6 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
     private final ObjectMapper objectMapper; // Jackson ObjectMapper for JSON serialization
     private final Map<String, HierarchicalTestSuite> testCaseXrayTestExecutionResultMap = new HashMap<>();
     private final Logger logger = Logger.getLogger(this.getClass().getName());
-    private Properties prop;
     private final Set<String> environments;
     private final String description;
     private final String title;
@@ -92,8 +91,8 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         validateTempDirectory(tempDirectoryPath);
         this.tempDirectory = tempDirectoryPath;
         this.xrayAuth = builder.xrayAuth
-                .orElse(builder.prop.map(path -> XrayAuth.fromPropertiesFile(path.toAbsolutePath().toString()))
-                        .orElseGet(() -> XrayAuth.fromPropertiesFile("src/test/resources/xray.properties")));
+                .or(() -> builder.prop.map(path -> XrayAuth.fromPropertiesFile(path.toAbsolutePath().toString())))
+                .orElseThrow(() -> new IllegalArgumentException("XrayAuth must be provided either as an object or as a properties file path."));
         this.environments = builder.environments.orElse(Set.of());
         this.description = builder.description;
         this.title = builder.title;
@@ -118,9 +117,6 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
             Preconditions.checkNotNull(fieldSupplier, "fieldSupplier must not be null");
             Preconditions.checkNotNull(description, "description must not be null");
             Preconditions.checkNotNull(title, "title must not be null");
-            XrayAuth auth = xrayAuth.orElse(
-                    XrayAuth.fromPropertiesFile("src/test/resources/xray.properties"));
-            Set<String> envs = environments.orElse(Set.of());
             this.objectMapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
             return new XrayTestResultUpdater(this);
         }
