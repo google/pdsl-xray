@@ -17,7 +17,7 @@ limitations under the License.
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.google.pdsl</groupId>
     <artifactId>pdsl-xray</artifactId>
-    <version>5.1.1</version>
+    <version>5.2.0-SNAPSHOT</version>
     <packaging>jar</packaging>
     <name>xray_pdsl</name>
     <url>http://maven.apache.org</url>
@@ -52,13 +52,15 @@ limitations under the License.
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
-        <mvn.jar.version>3.2.2</mvn.jar.version>
-        <antlr.version>4.9.1</antlr.version>
-        <maven.source.plugin.version>3.3.1</maven.source.plugin.version>
-        <maven.javadoc.plugin.version>3.7.0</maven.javadoc.plugin.version>
-        <maven.install.plugin.version>3.1.2</maven.install.plugin.version>
+        <antlr.version>4.13.2</antlr.version>
+        <!--todo: I'll update it -->
+        <pdsl.version>1.12.2-SNAPSHOT</pdsl.version>
         <maven.deploy.plugin.version>3.1.2</maven.deploy.plugin.version>
         <maven.gpg.plugin.version>3.2.4</maven.gpg.plugin.version>
+        <maven.install.plugin.version>3.1.2</maven.install.plugin.version>
+        <maven.javadoc.plugin.version>3.7.0</maven.javadoc.plugin.version>
+        <maven.source.plugin.version>3.3.1</maven.source.plugin.version>
+        <mvn.jar.version>3.2.2</mvn.jar.version>
     </properties>
     <distributionManagement>
         <snapshotRepository>
@@ -100,7 +102,7 @@ limitations under the License.
         <dependency>
             <groupId>com.google.pdsl</groupId>
             <artifactId>pdsl</artifactId>
-            <version>1.11.1</version>
+            <version>${pdsl.version}</version>
         </dependency>
         <dependency>
             <groupId>org.antlr</groupId>
@@ -123,6 +125,11 @@ limitations under the License.
             <artifactId>plexus-cipher</artifactId>
             <version>1.7</version>
         </dependency>
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+            <version>33.2.1-jre</version>
+        </dependency>
     </dependencies>
     <repositories>
         <repository>
@@ -136,7 +143,7 @@ limitations under the License.
         </repository>
         <repository>
             <id>artifact-registry</id>
-            <url> artifactregistry://us-central1-maven.pkg.dev/gfp-p-artifacts-hub-01/ar-maven-experimental </url>
+            <url>artifactregistry://us-central1-maven.pkg.dev/gfp-p-artifacts-hub-01/ar-maven-experimental</url>
             <releases>
                 <enabled>true</enabled>
             </releases>
@@ -152,6 +159,13 @@ limitations under the License.
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.antlr</groupId>
+                <artifactId>antlr4-maven-plugin</artifactId>
+                <configuration>
+                    <sourceDirectory>src/test/antlr4</sourceDirectory>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

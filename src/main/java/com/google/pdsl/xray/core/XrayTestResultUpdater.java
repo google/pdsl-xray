@@ -111,7 +111,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         private String title;
         private Supplier<Map<Object, Object>> fieldSupplier;
         private Optional<Path> tempDirectory = Optional.empty();
-        private List<String> xrayStatuses = List.of("EXECUTING", "FAILED", "PASSED", "TODO");
+        private List<String> xrayStatuses = List.of("EXECUTING", "FAILED", "BLOCKED", "PASSED", "TODO");
 
         public XrayTestResultUpdater build() {
             Preconditions.checkNotNull(fieldSupplier, "fieldSupplier must not be null");
@@ -591,33 +591,32 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
      * @param results The collection of test results.
      */
     public void addResults(Collection<TestResult> results) {
-
         for (TestResult result : results) {
             TestCase testCase = result.getTestCase();
             if (testCase instanceof TaggedTestCase taggedTestCase) {
                 Set<String> testPlanTags = new HashSet<>(extractTags(taggedTestCase.getTags(), "@xray-test-plan="));
                 if (testPlanTags.size() > 1) {
                     throw new IllegalArgumentException(String.format("""
-                            Only one test plan can be associated with a test case!
-                            Problem Test-
-                            %s
-                            %s
-                            
-                            Tags: %s
-                            
-                            """, testCase.getOriginalSource(), testCase.getTestTitle(), taggedTestCase.getTags()));
+                             Only one test plan can be associated with a test case!
+                             Problem Test-
+                             %s
+                             %s
+                             
+                             Tags: %s
+                             
+                             """, testCase.getOriginalSource(), testCase.getTestTitle(), taggedTestCase.getTags()));
                 }
                 Set<String> testExecutionTags = new HashSet<>(extractTags(taggedTestCase.getTags(), "@xray-test-execution="));
                 if (testExecutionTags.size() > 1) {
                     throw new IllegalArgumentException(String.format("""
-                            Only one test execution can be associated with a test case!
-                            Problem Test-
-                            %s
-                            %s
-                            
-                            Tags: %s
-                            
-                            """, testCase.getOriginalSource(), testCase.getTestTitle(), taggedTestCase.getTags()));
+                             Only one test execution can be associated with a test case!
+                             Problem Test-
+                             %s
+                             %s
+                             
+                             Tags: %s
+                             
+                             """, testCase.getOriginalSource(), testCase.getTestTitle(), taggedTestCase.getTags()));
                 }
 
                 Set<String> envTags = extractTags(taggedTestCase.getTags(), "@xray-test-env=").stream()
@@ -655,8 +654,71 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
                             position.testIndex()
                     );
                 });
+
+                // Extract step-level annotations from TestCase.STEP_COMMENTS
+                Map<?, ?> rawStepComments = (Map<?, ?>) testCase.getMetadata().get(TestCase.STEP_COMMENTS);
+                if (rawStepComments != null) {
+                    List<String> stepDescriptions = testCase.getUnfilteredPhraseBody();
+                    Integer failingIdx = result.getFailingPhrase().isPresent() ? result.getFailingPhrase().get().getPrefilteredIndex() : null;
+
+                    for (Map.Entry<?, ?> entry : rawStepComments.entrySet()) {
+                        if (entry.getKey() instanceof Integer stepOneBasedIdx) {
+                            int stepZeroBasedIdx = stepOneBasedIdx - 1;
+                            if (entry.getValue() instanceof List<?> commentsList) {
+                                for (Object commentObj : commentsList) {
+                                    if (commentObj instanceof String comment) {
+                                        String commentTrimmed = comment.trim();
+                                        if (commentTrimmed.startsWith("#")) {
+                                            commentTrimmed = commentTrimmed.substring(1).trim();
+                                        }
+                                        if (commentTrimmed.startsWith("@")) {
+                                            commentTrimmed = commentTrimmed.substring(1).trim();
+                                        }
+                                        if (commentTrimmed.startsWith("xray-test-case=")) {
+                                            String stepTestCaseKey = commentTrimmed.substring("xray-test-case=".length()).trim();
+
+                                            // Determine the status of this step-level test case
+                                            String stepStatus;
+                                            if (failingIdx == null) {
+                                                stepStatus = "PASSED";
+                                            } else {
+                                                if (stepZeroBasedIdx < failingIdx) {
+                                                    stepStatus = "PASSED";
+                                                } else if (stepZeroBasedIdx == failingIdx) {
+                                                    stepStatus = "FAILED";
+                                                } else {
+                                                    stepStatus = "BLOCKED";
+                                                }
+                                            }
+
+                                            TestItem stepTestItem = new TestItem(
+                                                    testCase.getTestTitle(),
+                                                    stepTestCaseKey,
+                                                    stepStatus,
+                                                    testPlan.key,
+                                                    testExecutionTags.stream().findFirst().orElse(null),
+                                                    envTags.isEmpty() ? environments : envTags,
+                                                    stepDescriptions,
+                                                    (failingIdx != null && stepZeroBasedIdx == failingIdx) ? result.getFailureReason().orElse(null) : null,
+                                                    failingIdx
+                                            );
+
+                                            suite.addTestResult(
+                                                    testCase.getOriginalSource(),
+                                                    stepTestItem,
+                                                    position.ruleIndex(),
+                                                    position.ordinal(),
+                                                    position.testIndex()
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
+        }
         }
 
     private static final GherkinScenario.ScenarioPosition DEFAULT_POSITION = new GherkinScenario.ScenarioPosition(-1, -1, -1);
