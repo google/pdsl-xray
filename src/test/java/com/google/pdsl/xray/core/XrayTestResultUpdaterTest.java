@@ -1,5 +1,6 @@
 package com.google.pdsl.xray.core;
 
+import com.google.pdsl.xray.constants.StepStatus;
 import com.google.pdsl.xray.models.XrayTestExecution;
 import com.google.pdsl.xray.models.XrayTestResult;
 import com.pdsl.reports.TestResult;
@@ -70,7 +71,7 @@ class XrayTestResultUpdaterTest {
         XrayTestResultUpdater updater = xrayTestResultUpdaterBuilder.withXrayAuth(xrayAuth).build();
 
         Map<Integer, List<String>> stepComments = new HashMap<>();
-        stepComments.put(1, List.of("#@xray-test-case=STEP-KEY-1"));
+        stepComments.put(1, List.of("@xray-test-case=STEP-KEY-1"));
         stepComments.put(3, List.of("@xray-test-case=STEP-KEY-3"));
         TaggedTestCase testCase = createMockTestCase(stepComments);
 
@@ -86,9 +87,9 @@ class XrayTestResultUpdaterTest {
         XrayTestExecution testExecution = getTestExecution(updater, "EXEC-123");
 
         assertEquals(3, testExecution.tests().size());
-        assertEquals("PASSED", getTestStatus(testExecution, "STEP-KEY-1"));
-        assertEquals("PASSED", getTestStatus(testExecution, "STEP-KEY-3"));
-        assertEquals("PASSED", getTestStatus(testExecution, "SCENARIO-KEY"));
+        assertEquals(StepStatus.PASSED.name(), getTestStatus(testExecution, "STEP-KEY-1"));
+        assertEquals(StepStatus.PASSED.name(), getTestStatus(testExecution, "STEP-KEY-3"));
+        assertEquals(StepStatus.PASSED.name(), getTestStatus(testExecution, "SCENARIO-KEY"));
     }
 
     @Test
@@ -100,7 +101,7 @@ class XrayTestResultUpdaterTest {
         // Step 2 (index 2) has STEP-KEY-2 -> should be FAILED
         // Step 3 (index 3) has STEP-KEY-3 -> should be BLOCKED
         Map<Integer, List<String>> stepComments = new HashMap<>();
-        stepComments.put(1, List.of("#@xray-test-case=STEP-KEY-1"));
+        stepComments.put(1, List.of("@xray-test-case=STEP-KEY-1"));
         stepComments.put(2, List.of("@xray-test-case=STEP-KEY-2"));
         stepComments.put(3, List.of("@xray-test-case=STEP-KEY-3"));
         TaggedTestCase testCase = createMockTestCase(stepComments);
@@ -121,10 +122,10 @@ class XrayTestResultUpdaterTest {
 
         // SCENARIO-KEY, STEP-KEY-1, STEP-KEY-2, STEP-KEY-3
         assertEquals(4, testExecution.tests().size());
-        assertEquals("FAILED", getTestStatus(testExecution, "SCENARIO-KEY"));
-        assertEquals("PASSED", getTestStatus(testExecution, "STEP-KEY-1"));
-        assertEquals("FAILED", getTestStatus(testExecution, "STEP-KEY-2"));
-        assertEquals("BLOCKED", getTestStatus(testExecution, "STEP-KEY-3"));
+        assertEquals(StepStatus.FAILED.name(), getTestStatus(testExecution, "SCENARIO-KEY"));
+        assertEquals(StepStatus.PASSED.name(), getTestStatus(testExecution, "STEP-KEY-1"));
+        assertEquals(StepStatus.FAILED.name(), getTestStatus(testExecution, "STEP-KEY-2"));
+        assertEquals(StepStatus.BLOCKED.name(), getTestStatus(testExecution, "STEP-KEY-3"));
     }
 
 
