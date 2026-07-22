@@ -27,11 +27,15 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Paths;
-import java.util.*;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Properties;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 /*
 Copyright 2025 Google LLC
 
@@ -47,122 +51,124 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
 /**
  * This class contains JUnit Jupiter tests for Xray integration. It uses the Pdsl framework to
  * execute Gherkin scenarios and integrates with Xray for test management and reporting.
  */
 public class XrayIntegrationTest {
 
-  private static final Properties properties = initProperties();
+    private static final Properties properties = initProperties();
 
-  private static final XrayAuth xrayAuth =  XrayAuth.fromPropertiesFile("src/test/resources/xray.properties");
-  private static final XrayTestResultUpdater updater = new XrayTestResultUpdater.Builder(
-          "PDSL-XRAY Plugin E2E Tests",
-          """
-                  End to end tests for the pdsl-xray plugin.
-                  These tests support the gherkin protocol both through special fields in
-                  the examples table or tags directly above scenarios:
-                  |xray-test-plan | xray-test-case | xray-test-env |
-                  """,
-          () -> Map.of(
-                  "fields", Map.of(
-                         "project", Map.of("key", properties.get("xray.project.key")),
-                         "summary", "Automated test run by Polymorphic DSL Test Framework",
-                          "issuetype", Map.of("name", "Test Execution"),
-                          "assignee", Map.of("accountId", properties.get("xray.reporter.accountId")),
-                          "reporter", Map.of("accountId", properties.get("xray.reporter.accountId"))
-                          )
-          )).withXrayAuth(xrayAuth)
-      .build();
-
-  private static final DefaultPolymorphicDslTestExecutor traceableTestRunExecutor = new DefaultPolymorphicDslTestExecutor();
-  private static final PolymorphicDslPhraseFilter MY_CUSTOM_PDSL_PHRASE_FILTER = new MyCustomPDSLPhraseFilter();
-  private static final PickleJarFactory PICKLE_JAR_FACTORY = init();
-  private static final Supplier<ParseTreeListener> parseTreeListenerSupplier = AllGrammarsParserBaseListener::new;
-
-  private static Properties initProperties() {
-    Properties properties = new Properties();
-    try {
-      properties.load(new FileInputStream("src/test/resources/xray.properties"));
-      return properties;
-    } catch (IOException e) {
-      throw new IllegalStateException(e);
-    }
-  }
-
-  private static PickleJarFactory init() {
-    traceableTestRunExecutor.registerObserver(updater);
-    PickleJarFactory PICKLE_JAR_FACTORY = PickleJarFactory.getDefaultPickleJarFactory();
-    PICKLE_JAR_FACTORY.registerObserver(updater);
-    return PICKLE_JAR_FACTORY;
-  }
-
-  @TestTemplate
-  @ExtendWith(IosExtension.class)
-  public void iosTest(PdslExecutable executable) {
-    executable.execute();
-  }
-
-  @TestTemplate
-  @ExtendWith(AndroidExtension.class)
-  public void androidTest(PdslExecutable executable) {
-    executable.execute();
-  }
-
-  private static PdslConfigParameter createParameterWithTag(String tag) {
-    return PdslConfigParameter.createGherkinPdslConfig(
-                    List.of(
-                            new PdslTestParameter.Builder(parseTreeListenerSupplier,
-                                    AllGrammarsLexer.class, AllGrammarsParser.class)
-                                    .withTagExpression(tag)
-                                    .withIncludedResources(new String[]{"XRayIntegration.feature", "PdslXrayTabular.feature"})
-                                    .build()
+    private static final XrayAuth xrayAuth = XrayAuth.fromPropertiesFile("src/test/resources/xray.properties");
+    private static final XrayTestResultUpdater updater = new XrayTestResultUpdater.Builder(
+            "PDSL-XRAY Plugin E2E Tests",
+            """
+                    End to end tests for the pdsl-xray plugin.
+                    These tests support the gherkin protocol both through special fields in
+                    the examples table or tags directly above scenarios:
+                    |xray-test-plan | xray-test-case | xray-test-env |
+                    """,
+            () -> Map.of(
+                    "fields", Map.of(
+                            "project", Map.of("key", properties.get("xray.project.key")),
+                            "summary", "Automated test run by Polymorphic DSL Test Framework",
+                            "issuetype", Map.of("name", "Test Execution"),
+                            "assignee", Map.of("accountId", properties.get("xray.reporter.accountId")),
+                            "reporter", Map.of("accountId", properties.get("xray.reporter.accountId"))
                     )
-            )
-            .withApplicationName("Polymorphic DSL Framework")
-            .withContext("User Acceptance Test")
-            .withResourceRoot(Paths.get("src/test/resources/features").toUri())
-            .withRecognizerRule("polymorphicDslAllRules")
-            .withTestRunExecutor(() -> traceableTestRunExecutor)
-            .withTestSpecificationFactoryGenerator(
-                    () -> new DefaultGherkinTestSpecificationFactoryGenerator(
-                            new DefaultGherkinTestSpecificationFactory.Builder((MY_CUSTOM_PDSL_PHRASE_FILTER))
-                                    .withPickleJarFactory(PICKLE_JAR_FACTORY)))
+            )).withXrayAuth(xrayAuth)
             .build();
-  }
-  /**
-   * A supplier that provides an instance of AllGrammarsParserBaseListener.
-   */
-  private static class IosExtension extends PdslGherkinInvocationContextProvider {
 
-    @Override
-    public Stream<TestTemplateInvocationContext> provideTestTemplateInvocationContexts(ExtensionContext context) {
-      return getInvocationContext(createParameterWithTag("@ios")).stream();
+    private static final DefaultPolymorphicDslTestExecutor traceableTestRunExecutor = new DefaultPolymorphicDslTestExecutor();
+    private static final PolymorphicDslPhraseFilter MY_CUSTOM_PDSL_PHRASE_FILTER = new MyCustomPDSLPhraseFilter();
+    private static final PickleJarFactory PICKLE_JAR_FACTORY = init();
+    private static final Supplier<ParseTreeListener> parseTreeListenerSupplier = AllGrammarsParserBaseListener::new;
+
+    private static Properties initProperties() {
+        Properties properties = new Properties();
+        try {
+            properties.load(new FileInputStream("src/test/resources/xray.properties"));
+            return properties;
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
     }
-  }
 
-  private static class AndroidExtension extends PdslGherkinInvocationContextProvider {
-    @Override
-    public Stream<TestTemplateInvocationContext> provideTestTemplateInvocationContexts(ExtensionContext context) {
-      return getInvocationContext(createParameterWithTag("@wip")).stream();
+    private static PickleJarFactory init() {
+        traceableTestRunExecutor.registerObserver(updater);
+        PickleJarFactory PICKLE_JAR_FACTORY = PickleJarFactory.getDefaultPickleJarFactory();
+        PICKLE_JAR_FACTORY.registerObserver(updater);
+        return PICKLE_JAR_FACTORY;
     }
-  }
 
-  /**
-   * Publishes the test results to Xray after all tests have been executed.
-   */
-  @AfterAll
-  public static void publishReportsToXray() {
-    // Validation: Check if the updater has created a valid Xray payload.
-    assertNotNull(updater.getXrayPayload(), "Xray payload is null.");
-    List<HttpResponse> responses = updater.publishReportsToXray();
-    assertFalse(responses.isEmpty());
-  }
-
-  private static class MyCustomPDSLPhraseFilter implements PolymorphicDslPhraseFilter {
-    @Override
-    public Optional<List<FilteredPhrase>> filterPhrases(List<InputStream> testInput) {
-      return Optional.empty();
+    private static PdslConfigParameter createParameterWithTag(String tag) {
+        return PdslConfigParameter.createGherkinPdslConfig(
+                        List.of(
+                                new PdslTestParameter.Builder(parseTreeListenerSupplier,
+                                        AllGrammarsLexer.class, AllGrammarsParser.class)
+                                        .withTagExpression(tag)
+                                        .withIncludedResources(new String[]{"XRayIntegration.feature", "PdslXrayTabular.feature"})
+                                        .build()
+                        )
+                )
+                .withApplicationName("Polymorphic DSL Framework")
+                .withContext("User Acceptance Test")
+                .withResourceRoot(Paths.get("src/test/resources/features").toUri())
+                .withRecognizerRule("polymorphicDslAllRules")
+                .withTestRunExecutor(() -> traceableTestRunExecutor)
+                .withTestSpecificationFactoryGenerator(
+                        () -> new DefaultGherkinTestSpecificationFactoryGenerator(
+                                new DefaultGherkinTestSpecificationFactory.Builder((MY_CUSTOM_PDSL_PHRASE_FILTER))
+                                        .withPickleJarFactory(PICKLE_JAR_FACTORY)))
+                .build();
     }
-  }
+
+    /**
+     * Publishes the test results to Xray after all tests have been executed.
+     */
+    @AfterAll
+    public static void publishReportsToXray() {
+        // Validation: Check if the updater has created a valid Xray payload.
+        assertNotNull(updater.getXrayPayload(), "Xray payload is null.");
+        List<HttpResponse> responses = updater.publishReportsToXray();
+        assertFalse(responses.isEmpty());
+    }
+
+    @TestTemplate
+    @ExtendWith(IosExtension.class)
+    public void iosTest(PdslExecutable executable) {
+        executable.execute();
+    }
+
+    @TestTemplate
+    @ExtendWith(AndroidExtension.class)
+    public void androidTest(PdslExecutable executable) {
+        executable.execute();
+    }
+
+    /**
+     * A supplier that provides an instance of AllGrammarsParserBaseListener.
+     */
+    private static class IosExtension extends PdslGherkinInvocationContextProvider {
+
+        @Override
+        public Stream<TestTemplateInvocationContext> provideTestTemplateInvocationContexts(ExtensionContext context) {
+            return getInvocationContext(createParameterWithTag("@ios")).stream();
+        }
+    }
+
+    private static class AndroidExtension extends PdslGherkinInvocationContextProvider {
+        @Override
+        public Stream<TestTemplateInvocationContext> provideTestTemplateInvocationContexts(ExtensionContext context) {
+            return getInvocationContext(createParameterWithTag("@wip")).stream();
+        }
+    }
+
+    private static class MyCustomPDSLPhraseFilter implements PolymorphicDslPhraseFilter {
+        @Override
+        public Optional<List<FilteredPhrase>> filterPhrases(List<InputStream> testInput) {
+            return Optional.empty();
+        }
+    }
 }

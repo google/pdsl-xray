@@ -119,7 +119,6 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         private Optional<Path> tempDirectory = Optional.empty();
         private List<String> xrayStatuses = List.of("EXECUTING", "FAILED", "BLOCKED", "PASSED", "TODO");
 
-
         public XrayTestResultUpdater build() {
             Preconditions.checkNotNull(fieldSupplier, "fieldSupplier must not be null");
             Preconditions.checkNotNull(description, "description must not be null");
