@@ -161,13 +161,6 @@ limitations under the License.
                 <artifactId>maven-jar-plugin</artifactId>
             </plugin>
             <plugin>
-                <groupId>org.antlr</groupId>
-                <artifactId>antlr4-maven-plugin</artifactId>
-                <configuration>
-                    <sourceDirectory>src/test/antlr4</sourceDirectory>
-                </configuration>
-            </plugin>
-            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-source-plugin</artifactId>
                 <version>${maven.source.plugin.version}</version>
@@ -238,6 +231,7 @@ limitations under the License.
                     <artifactId>antlr4-maven-plugin</artifactId>
                     <version>${antlr.version}</version>
                     <configuration>
+                        <sourceDirectory>src/test/antlr4</sourceDirectory>
                         <arguments>
                             <argumenent>-visitor</argumenent>
                         </arguments>
