@@ -676,11 +676,13 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         List<String> stepDescriptions = testCase.getUnfilteredPhraseBody();
         Integer failingIdx = result.getFailingPhrase().isPresent() ? result.getFailingPhrase().get().getPrefilteredIndex() : null;
 
+        Map<String, TestItem> uniqueStepTestItems = new LinkedHashMap<>();
+
         for (Map.Entry<?, ?> entry : rawStepComments.entrySet()) {
             if (entry.getKey() instanceof Integer stepOneBasedIdx) {
                 int stepZeroBasedIdx = stepOneBasedIdx - 1;
                 if (entry.getValue() instanceof Collection<?> commentsList) {
-                    for (Object commentObj : commentsList) {
+                    for (Object commentObj : new HashSet<>(commentsList)) {
                         if (commentObj instanceof String comment) {
                             String normalizedComment = comment.trim();
                             extractTagValue(normalizedComment, XrayTestTag.CASE)
@@ -697,13 +699,28 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
                                                 (failingIdx != null && stepZeroBasedIdx == failingIdx) ? result.getFailureReason().orElse(null) : null,
                                                 failingIdx
                                         );
-                                        registerTestItem(testCase, stepTestItem, suite);
+
+                                        uniqueStepTestItems.merge(stepTestCaseKey, stepTestItem, this::mergeStepTestItems);
                                     });
                         }
                     }
                 }
             }
         }
+
+        for (TestItem stepTestItem : uniqueStepTestItems.values()) {
+            registerTestItem(testCase, stepTestItem, suite);
+        }
+    }
+
+    private TestItem mergeStepTestItems(TestItem existing, TestItem incoming) {
+        int existingPriority = xrayStatuses.indexOf(existing.status());
+        int incomingPriority = xrayStatuses.indexOf(incoming.status());
+        // Smaller index in xrayStatuses means more significant status (e.g. EXECUTING=0, FAILED=1, etc.)
+        if (incomingPriority >= 0 && (existingPriority < 0 || incomingPriority < existingPriority)) {
+            return incoming;
+        }
+        return existing;
     }
 
     private StepStatus determineStepStatus(Integer failingStepIndex, int stepZeroBasedIdx) {

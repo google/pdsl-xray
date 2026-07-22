@@ -89,8 +89,6 @@ class XrayTestResultUpdaterTest {
         TestResult result = Mockito.mock(TestResult.class);
         when(result.getTestCase()).thenReturn(testCase);
         when(result.getStatus()).thenReturn(TechnicalReportData.Status.PASSED);
-        when(result.getFailureReason()).thenReturn(Optional.empty());
-        when(result.getFailingPhrase()).thenReturn(Optional.empty());
 
         updater.addResults(List.of(result));
 
@@ -138,6 +136,40 @@ class XrayTestResultUpdaterTest {
         assertEquals(StepStatus.BLOCKED.name(), getTestStatus(testExecution, "STEP-KEY-3"));
     }
 
+    @Test
+    void addResults_withDuplicateStepLevelComments_avoidsDuplicatesAndConsolidatesStatus() {
+        XrayTestResultUpdater updater = xrayTestResultUpdaterBuilder.withXrayAuth(xrayAuth).build();
+
+        // given
+        // Step 1 (index 1) has STEP-KEY-1 -> should be PASSED
+        // Step 2 (index 2) has STEP-KEY-1 (duplicate) -> should be FAILED
+        // Step 3 (index 3) has STEP-KEY-1 (duplicate) -> should be BLOCKED
+        Map<Integer, List<String>> stepComments = new HashMap<>();
+        stepComments.put(1, List.of("@xray-test-case=STEP-KEY-1"));
+        stepComments.put(2, List.of("@xray-test-case=STEP-KEY-1"));
+        stepComments.put(3, List.of("@xray-test-case=STEP-KEY-1"));
+        TaggedTestCase testCase = createMockTestCase(stepComments);
+
+        Phrase failingPhrase = Mockito.mock(Phrase.class);
+        when(failingPhrase.getPrefilteredIndex()).thenReturn(1);
+
+        // when
+        TestResult result = Mockito.mock(TestResult.class);
+        when(result.getTestCase()).thenReturn(testCase);
+        when(result.getStatus()).thenReturn(TechnicalReportData.Status.FAILED);
+        when(result.getFailingPhrase()).thenReturn(Optional.of(failingPhrase));
+
+        updater.addResults(List.of(result));
+
+        XrayTestExecution testExecution = getTestExecution(updater, "EXEC-123");
+
+        // then
+        // Only 2 distinct tests: SCENARIO-KEY, STEP-KEY-1 (no duplicates)
+        assertEquals(2, testExecution.tests().size());
+        assertEquals(StepStatus.FAILED.name(), getTestStatus(testExecution, "SCENARIO-KEY"));
+        // Overall status of STEP-KEY-1 should be FAILED since one of the steps failed
+        assertEquals(StepStatus.FAILED.name(), getTestStatus(testExecution, "STEP-KEY-1"));
+    }
 
     private TaggedTestCase createMockTestCase(Map<Integer, List<String>> stepComments) {
         TaggedTestCase testCase = Mockito.mock(TaggedTestCase.class);
