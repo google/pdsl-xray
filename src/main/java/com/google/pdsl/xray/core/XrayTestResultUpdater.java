@@ -679,7 +679,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         for (Map.Entry<?, ?> entry : rawStepComments.entrySet()) {
             if (entry.getKey() instanceof Integer stepOneBasedIdx) {
                 int stepZeroBasedIdx = stepOneBasedIdx - 1;
-                if (entry.getValue() instanceof List<?> commentsList) {
+                if (entry.getValue() instanceof Collection<?> commentsList) {
                     for (Object commentObj : commentsList) {
                         if (commentObj instanceof String comment) {
                             String normalizedComment = comment.trim();

@@ -4,6 +4,7 @@ import com.google.pdsl.xray.constants.StepStatus;
 import com.google.pdsl.xray.models.XrayTestExecution;
 import com.google.pdsl.xray.models.XrayTestResult;
 import com.pdsl.reports.TestResult;
+import com.pdsl.reports.proto.TechnicalReportData;
 import com.pdsl.specifications.Phrase;
 import com.pdsl.testcases.TaggedTestCase;
 import com.pdsl.testcases.TestCase;
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.io.IOException;
@@ -84,9 +86,9 @@ class XrayTestResultUpdaterTest {
         TaggedTestCase testCase = createMockTestCase(stepComments);
 
         // Mock TestResult
-        TestResult result = org.mockito.Mockito.mock(TestResult.class);
+        TestResult result = Mockito.mock(TestResult.class);
         when(result.getTestCase()).thenReturn(testCase);
-        when(result.getStatus()).thenReturn(com.pdsl.reports.proto.TechnicalReportData.Status.PASSED);
+        when(result.getStatus()).thenReturn(TechnicalReportData.Status.PASSED);
         when(result.getFailureReason()).thenReturn(Optional.empty());
         when(result.getFailingPhrase()).thenReturn(Optional.empty());
 
@@ -114,13 +116,13 @@ class XrayTestResultUpdaterTest {
         stepComments.put(3, List.of("@xray-test-case=STEP-KEY-3"));
         TaggedTestCase testCase = createMockTestCase(stepComments);
 
-        Phrase failingPhrase = org.mockito.Mockito.mock(Phrase.class);
+        Phrase failingPhrase = Mockito.mock(Phrase.class);
         when(failingPhrase.getPrefilteredIndex()).thenReturn(1);
 
         // Mock TestResult
-        TestResult result = org.mockito.Mockito.mock(TestResult.class);
+        TestResult result = Mockito.mock(TestResult.class);
         when(result.getTestCase()).thenReturn(testCase);
-        when(result.getStatus()).thenReturn(com.pdsl.reports.proto.TechnicalReportData.Status.FAILED);
+        when(result.getStatus()).thenReturn(TechnicalReportData.Status.FAILED);
         when(result.getFailureReason()).thenReturn(Optional.of(new RuntimeException("Test Failure")));
         when(result.getFailingPhrase()).thenReturn(Optional.of(failingPhrase));
 
@@ -138,7 +140,7 @@ class XrayTestResultUpdaterTest {
 
 
     private TaggedTestCase createMockTestCase(Map<Integer, List<String>> stepComments) {
-        TaggedTestCase testCase = org.mockito.Mockito.mock(TaggedTestCase.class);
+        TaggedTestCase testCase = Mockito.mock(TaggedTestCase.class);
         when(testCase.getTags()).thenReturn(Set.of("@xray-test-plan=PLAN-123", "@xray-test-execution=EXEC-123", "@xray-test-case=SCENARIO-KEY"));
         when(testCase.getOriginalSource()).thenReturn(URI.create("file:/some/path?ruleIndex=1&ordinal=2&tableIndex=3"));
         when(testCase.getTestTitle()).thenReturn("My Scenario");
