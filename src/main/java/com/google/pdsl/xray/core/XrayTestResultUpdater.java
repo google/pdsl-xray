@@ -671,7 +671,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
     private void processStepComments(Map<Integer, ?> rawStepComments, TestCase testCase, TestResult result,
                                      TestPlan testPlan, Set<String> testExecutionTags, Set<String> envTags,
                                      HierarchicalTestSuite suite) {
-        if (rawStepComments == null) {
+        if (rawStepComments == null || rawStepComments.isEmpty()) {
             return;
         }
         List<String> stepDescriptions = testCase.getUnfilteredPhraseBody();
