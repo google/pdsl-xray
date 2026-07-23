@@ -115,7 +115,7 @@ class XrayTestResultUpdaterTest {
         TaggedTestCase testCase = createMockTestCase(stepComments);
 
         Phrase failingPhrase = Mockito.mock(Phrase.class);
-        when(failingPhrase.getPrefilteredIndex()).thenReturn(1);
+        when(failingPhrase.getPrefilteredIndex()).thenReturn(2);
 
         // Mock TestResult
         TestResult result = Mockito.mock(TestResult.class);

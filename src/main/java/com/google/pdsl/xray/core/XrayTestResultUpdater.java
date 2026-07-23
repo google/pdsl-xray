@@ -634,7 +634,8 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
                 testItems.forEach(testItem -> registerTestItem(testCase, testItem, suite));
 
                 // Extract step-level annotations from TestCase.STEP_COMMENTS
-                Map<?, ?> rawStepComments = (Map<?, ?>) testCase.getMetadata().get(TestCase.STEP_COMMENTS);
+                @SuppressWarnings("unchecked")
+                Map<Integer, ?> rawStepComments = (Map<Integer, ?>) testCase.getMetadata().get(TestCase.STEP_COMMENTS);
                 processStepComments(rawStepComments, testCase, result, testPlan, testExecutionTags, envTags, suite);
             }
         }
@@ -667,7 +668,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         );
     }
 
-    private void processStepComments(Map<?, ?> rawStepComments, TestCase testCase, TestResult result,
+    private void processStepComments(Map<Integer, ?> rawStepComments, TestCase testCase, TestResult result,
                                      TestPlan testPlan, Set<String> testExecutionTags, Set<String> envTags,
                                      HierarchicalTestSuite suite) {
         if (rawStepComments == null) {
@@ -678,31 +679,29 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
 
         Map<String, TestItem> uniqueStepTestItems = new LinkedHashMap<>();
 
-        for (Map.Entry<?, ?> entry : rawStepComments.entrySet()) {
-            if (entry.getKey() instanceof Integer stepOneBasedIdx) {
-                int stepZeroBasedIdx = stepOneBasedIdx - 1;
-                if (entry.getValue() instanceof Collection<?> commentsList) {
-                    for (Object commentObj : new HashSet<>(commentsList)) {
-                        if (commentObj instanceof String comment) {
-                            String normalizedComment = comment.trim();
-                            extractTagValue(normalizedComment, XrayTestTag.CASE)
-                                    .ifPresent( stepTestCaseKey -> {
-                                        StepStatus stepStatus = determineStepStatus(failingIdx, stepZeroBasedIdx);
-                                        TestItem stepTestItem = new TestItem(
-                                                testCase.getTestTitle(),
-                                                stepTestCaseKey,
-                                                stepStatus.name(),
-                                                testPlan.key,
-                                                testExecutionTags.stream().findFirst().orElse(null),
-                                                envTags.isEmpty() ? environments : envTags,
-                                                stepDescriptions,
-                                                (failingIdx != null && stepZeroBasedIdx == failingIdx) ? result.getFailureReason().orElse(null) : null,
-                                                failingIdx
-                                        );
+        for (Map.Entry<Integer, ?> entry : rawStepComments.entrySet()) {
+            int stepIndex = entry.getKey();
+            if (entry.getValue() instanceof Collection<?> commentsList) {
+                for (Object commentObj : new HashSet<>(commentsList)) {
+                    if (commentObj instanceof String comment) {
+                        String normalizedComment = comment.trim();
+                        extractTagValue(normalizedComment, XrayTestTag.CASE)
+                                .ifPresent(stepTestCaseKey -> {
+                                    StepStatus stepStatus = determineStepStatus(failingIdx, stepIndex);
+                                    TestItem stepTestItem = new TestItem(
+                                            testCase.getTestTitle(),
+                                            stepTestCaseKey,
+                                            stepStatus.name(),
+                                            testPlan.key,
+                                            testExecutionTags.stream().findFirst().orElse(null),
+                                            envTags.isEmpty() ? environments : envTags,
+                                            stepDescriptions,
+                                            (failingIdx != null && stepIndex == failingIdx) ? result.getFailureReason().orElse(null) : null,
+                                            failingIdx
+                                    );
 
-                                        uniqueStepTestItems.merge(stepTestCaseKey, stepTestItem, this::mergeStepTestItems);
-                                    });
-                        }
+                                    uniqueStepTestItems.merge(stepTestCaseKey, stepTestItem, this::mergeStepTestItems);
+                                });
                     }
                 }
             }
