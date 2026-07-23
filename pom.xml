@@ -53,8 +53,7 @@ limitations under the License.
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
         <antlr.version>4.13.2</antlr.version>
-        <!--todo: I'll update it -->
-        <pdsl.version>1.12.2-SNAPSHOT</pdsl.version>
+        <pdsl.version>1.12.2</pdsl.version>
         <maven.deploy.plugin.version>3.1.2</maven.deploy.plugin.version>
         <maven.gpg.plugin.version>3.2.4</maven.gpg.plugin.version>
         <maven.install.plugin.version>3.1.2</maven.install.plugin.version>
