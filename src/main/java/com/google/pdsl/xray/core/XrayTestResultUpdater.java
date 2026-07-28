@@ -21,12 +21,16 @@ import org.antlr.v4.runtime.tree.ParseTreeListener;
 import org.antlr.v4.runtime.tree.ParseTreeVisitor;
 import org.apache.commons.codec.Charsets;
 import org.apache.http.HttpHeaders;
+import org.apache.http.HttpResponse;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPost;
+import org.apache.http.entity.ByteArrayEntity;
 import org.apache.http.entity.ContentType;
 import org.apache.http.entity.mime.MultipartEntityBuilder;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
+import org.apache.http.message.BasicHttpResponse;
+import org.apache.http.util.EntityUtils;
 
 import java.io.IOException;
 import java.net.URI;
@@ -568,17 +572,43 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
     try (CloseableHttpClient client = HttpClients.createDefault();
          CloseableHttpResponse response = client
            .execute(post)) {
-      responses.add(response);
+      HttpResponse clonedResponse = cloneResponseIntoMemory(response);
+      responses.add(clonedResponse);
       final int statusCode = response.getStatusLine().getStatusCode();
       if (statusCode >= 200 && statusCode < 300) {
         logger.info(String.format("Xray test execution results imported successfully\n%s%n",
-          new String(response.getEntity().getContent().readAllBytes())));
+          new String(clonedResponse.getEntity().getContent().readAllBytes())));
       } else {
         logger.severe(String.format("Failed to import Xray test execution results: %s - %s%n",
-          response.getStatusLine(), new String(response.getEntity().getContent().readAllBytes())));
+          response.getStatusLine(), new String(clonedResponse.getEntity().getContent().readAllBytes())));
       }
     }
   }
+
+    /**
+     * Reads an active HttpResponse and clones it completely into memory
+     * so it can be safely used after the original network stream is closed.
+     */
+    private BasicHttpResponse cloneResponseIntoMemory(HttpResponse originalResponse) throws IOException {
+        BasicHttpResponse clonedResponse = new BasicHttpResponse(originalResponse.getStatusLine());
+
+        clonedResponse.setHeaders(originalResponse.getAllHeaders());
+
+        if (originalResponse.getEntity() != null) {
+            ByteArrayEntity memoryEntity = new ByteArrayEntity(EntityUtils.toByteArray(originalResponse.getEntity()));
+
+            if (originalResponse.getEntity().getContentType() != null) {
+                memoryEntity.setContentType(originalResponse.getEntity().getContentType());
+            }
+            if (originalResponse.getEntity().getContentEncoding() != null) {
+                memoryEntity.setContentEncoding(originalResponse.getEntity().getContentEncoding());
+            }
+
+            clonedResponse.setEntity(memoryEntity);
+        }
+
+        return clonedResponse;
+    }
 
     /**
      * Retrieves the Xray report URL used by the updater.
