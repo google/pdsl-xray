@@ -3,18 +3,22 @@ package com.google.pdsl.xray.core;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
+import com.google.pdsl.xray.constants.StepStatus;
+import com.google.pdsl.xray.constants.XrayTestTag;
 import com.google.pdsl.xray.models.Info;
 import com.google.pdsl.xray.models.XrayTestExecution;
 import com.google.pdsl.xray.models.XrayTestResult;
 import com.pdsl.executors.ExecutorObserver;
 import com.pdsl.gherkin.GherkinObserver;
 import com.pdsl.gherkin.models.GherkinScenario;
+import com.pdsl.gherkin.models.GherkinScenario.ScenarioPosition;
 import com.pdsl.reports.MetadataTestRunResults;
 import com.pdsl.reports.TestResult;
 import com.pdsl.testcases.SharedTestCase;
 import com.pdsl.testcases.TaggedTestCase;
 import com.pdsl.testcases.TestCase;
 import org.antlr.v4.runtime.tree.ParseTreeListener;
+import org.antlr.v4.runtime.tree.ParseTreeVisitor;
 import org.apache.commons.codec.Charsets;
 import org.apache.http.HttpHeaders;
 import org.apache.http.HttpResponse;
@@ -61,6 +65,8 @@ limitations under the License.
  */
 public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver {
 
+    private static final GherkinScenario.ScenarioPosition DEFAULT_POSITION = new GherkinScenario.ScenarioPosition(-1, -1, -1);
+
     private final XrayAuth xrayAuth;
     private final ObjectMapper objectMapper; // Jackson ObjectMapper for JSON serialization
     private final Map<String, HierarchicalTestSuite> testCaseXrayTestExecutionResultMap = new HashMap<>();
@@ -75,6 +81,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
     private record TestPlan(String key, List<XrayTestCase> testCases) {
         private record XrayTestCase(String key, Set<String> environments, URI uri) {
         }
+
     }
 
     private XrayTestResultUpdater(Builder builder) {
@@ -104,7 +111,6 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         this.objectMapper = builder.objectMapper;
         this.xrayStatuses = builder.xrayStatuses;
     }
-
     public static class Builder {
         private static final ObjectMapper defaultObjectMapper = new ObjectMapper();
         private Optional<XrayAuth> xrayAuth = Optional.empty();
@@ -115,7 +121,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         private String title;
         private Supplier<Map<Object, Object>> fieldSupplier;
         private Optional<Path> tempDirectory = Optional.empty();
-        private List<String> xrayStatuses = List.of("EXECUTING", "FAILED", "PASSED", "TODO");
+        private List<String> xrayStatuses = List.of("EXECUTING", "FAILED", "BLOCKED", "PASSED", "TODO");
 
         public XrayTestResultUpdater build() {
             Preconditions.checkNotNull(fieldSupplier, "fieldSupplier must not be null");
@@ -176,11 +182,11 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
             this.objectMapper = objectMapper;
             return this;
         }
-
         public Builder withXrayAuth(XrayAuth xrayAuth) {
             this.xrayAuth = Optional.ofNullable(xrayAuth);
             return this;
         }
+
     }
 
     private void validateTempDirectory(Path tempDirectoryPath) {
@@ -209,21 +215,20 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
                     """, tempDirectoryPath.toUri()));
         }
     }
-
     private record TestItem(String title, String testKey, String status, String testPlanKey, String testExecutionKey,
                             Set<String> environments,
                             List<String> stepDescription,
                             Throwable throwable,
                             Integer failedStepIndex) {
+
         public Optional<Integer> getFailedStepIndex() {
             return Optional.ofNullable(failedStepIndex);
         }
-
         public Optional<Throwable> getThrowable() {
             return Optional.ofNullable(throwable);
         }
-    }
 
+    }
     private final class HierarchicalTestSuite {
 
         private record TestGroup(String source, int groupNumber, Map<Integer, TestOrdinal> ordinals) {
@@ -251,12 +256,13 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
                 }
                 return results;
            }
+
         }
-
         private record TestOrdinal(int ordinal, String xrayTestCase, List<TestPermutation> permutations) { }
-        private record TestPermutation(URI source, int permutationNumber, TestItem result) { }
 
+        private record TestPermutation(URI source, int permutationNumber, TestItem result) { }
         private final Map<String, List<TestGroup>> source2TestGroups = new HashMap<>();
+
 
         void addTestResult(URI source, TestItem result, int groupNumber, int ordinal, int exampleNumber) {
             List<TestGroup> testGroups = source2TestGroups.computeIfAbsent(source.getPath(), (k) -> new ArrayList<>());
@@ -272,7 +278,6 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
             List<TestPermutation> permutations = testOrdinal.permutations();
             permutations.add(new TestPermutation(source, exampleNumber, result));
         }
-
         /**
          * Creates XrayTestExecutionResult objects based on any added test results in the past.
          * @return
@@ -349,6 +354,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
             }
             return results;
         }
+
     }
 
     private static List<XrayTestResult.Iteration.XrayStep> iterationStepsFromPermutation(HierarchicalTestSuite.TestPermutation p) {
@@ -361,10 +367,10 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         }
         return steps;
     }
-
     /* Look at all the statuses we've gotten. Find the most significant status and use that to represent
        the overall status of the test.
      */
+
     private static String calculateOverallStatus(List<String> statuses, List<String> xrayStatuses) {
         int index = statuses.stream()
                 .mapToInt(xrayStatuses::indexOf)
@@ -385,10 +391,8 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
     @Override
     public void onScenarioConverted(String title, List<String> steps, Set<String> tags,
                                     Map<String, String> substitutions) {
-        addTags(tags, substitutions, "<xray-test-plan>");
-        addTags(tags, substitutions, "<xray-test-case>");
-        addTags(tags, substitutions, "<xray-test-env>");
-        addTags(tags, substitutions, "<xray-test-execution>");
+        Arrays.stream(XrayTestTag.values())
+                .forEach(xrayTag -> addTags(tags, substitutions, xrayTag.toHtmlTag()));
     }
 
     private static void addTags(Set<String> tags, Map<String, String> substitutions, String key) {
@@ -621,41 +625,22 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
      * @param results The collection of test results.
      */
     public void addResults(Collection<TestResult> results) {
-
         for (TestResult result : results) {
             TestCase testCase = result.getTestCase();
             if (testCase instanceof TaggedTestCase taggedTestCase) {
-                Set<String> testPlanTags = new HashSet<>(extractTags(taggedTestCase.getTags(), "@xray-test-plan="));
-                if (testPlanTags.size() > 1) {
-                    throw new IllegalArgumentException(String.format("""
-                            Only one test plan can be associated with a test case!
-                            Problem Test-
-                            %s
-                            %s
-                            
-                            Tags: %s
-                            
-                            """, testCase.getOriginalSource(), testCase.getTestTitle(), taggedTestCase.getTags()));
-                }
-                Set<String> testExecutionTags = new HashSet<>(extractTags(taggedTestCase.getTags(), "@xray-test-execution="));
-                if (testExecutionTags.size() > 1) {
-                    throw new IllegalArgumentException(String.format("""
-                            Only one test execution can be associated with a test case!
-                            Problem Test-
-                            %s
-                            %s
-                            
-                            Tags: %s
-                            
-                            """, testCase.getOriginalSource(), testCase.getTestTitle(), taggedTestCase.getTags()));
-                }
+                Set<String> testPlanTags = new HashSet<>(extractTags(taggedTestCase.getTags(), XrayTestTag.PLAN));
+                verifyTestItemSize(testPlanTags, testCase, taggedTestCase,
+                        "Only one test plan can be associated with a test case!");
+                Set<String> testExecutionTags = new HashSet<>(extractTags(taggedTestCase.getTags(), XrayTestTag.EXECUTION));
+                verifyTestItemSize(testExecutionTags, testCase, taggedTestCase,
+                        "Only one test execution can be associated with a test case!");
 
-                Set<String> envTags = extractTags(taggedTestCase.getTags(), "@xray-test-env=").stream()
+                Set<String> envTags = extractTags(taggedTestCase.getTags(), XrayTestTag.ENV).stream()
                         .map(s -> Arrays.asList(s.split(",")))
                         .flatMap(Collection::stream)
                         .collect(Collectors.toUnmodifiableSet());
 
-                Collection<String> caseTags = extractTags(taggedTestCase.getTags(), "@xray-test-case=");
+                Collection<String> caseTags = extractTags(taggedTestCase.getTags(), XrayTestTag.CASE);
 
                 List<TestPlan.XrayTestCase> testCases = caseTags.stream()
                         .map(tc -> new TestPlan.XrayTestCase(tc, envTags, testCase.getOriginalSource()))
@@ -675,21 +660,129 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
                         ))
                         .collect(Collectors.toSet());
                 HierarchicalTestSuite suite = testCaseXrayTestExecutionResultMap.computeIfAbsent(testPlan.key, (k) -> new HierarchicalTestSuite());
-                GherkinScenario.ScenarioPosition position = getPosition(testCase.getOriginalSource());
-                testItems.forEach(testItem -> {
-                    suite.addTestResult(
-                            testCase.getOriginalSource(),
-                            testItem,
-                            position.ruleIndex(),
-                            position.ordinal(),
-                            position.testIndex()
-                    );
-                });
+
+                testItems.forEach(testItem -> registerTestItem(testCase, testItem, suite));
+
+                // Extract step-level annotations from TestCase.STEP_COMMENTS
+                @SuppressWarnings("unchecked")
+                Map<Integer, ?> rawStepComments = (Map<Integer, ?>) testCase.getMetadata().get(TestCase.STEP_COMMENTS);
+                processStepComments(rawStepComments, testCase, result, testPlan, testExecutionTags, envTags, suite);
+            }
+        }
+    }
+
+    private void verifyTestItemSize(Set<String> testItems, TestCase testCase, TaggedTestCase taggedTestCase,
+                                    String message) {
+        if (testItems.size() > 1) {
+            throw new IllegalArgumentException(String.format("""
+                     %s
+                     Problem Test-
+                     %s
+                     %s
+                     
+                     Tags: %s
+                     
+                     """, message, testCase.getOriginalSource(), testCase.getTestTitle(), taggedTestCase.getTags()));
+        }
+    }
+
+    private void registerTestItem(TestCase testCase, XrayTestResultUpdater.TestItem testItem,
+                                  XrayTestResultUpdater.HierarchicalTestSuite suite) {
+        ScenarioPosition position = getPosition(testCase.getOriginalSource());
+        suite.addTestResult(
+                testCase.getOriginalSource(),
+                testItem,
+                position.ruleIndex(),
+                position.ordinal(),
+                position.testIndex()
+        );
+    }
+
+    private void processStepComments(Map<Integer, ?> rawStepComments, TestCase testCase, TestResult result,
+                                     TestPlan testPlan, Set<String> testExecutionTags, Set<String> envTags,
+                                     HierarchicalTestSuite suite) {
+        if (rawStepComments == null || rawStepComments.isEmpty()) {
+            return;
+        }
+        List<String> stepDescriptions = testCase.getUnfilteredPhraseBody();
+        Integer failingIdx = result.getFailingPhrase().isPresent() ? result.getFailingPhrase().get().getPrefilteredIndex() : null;
+
+        Map<String, TestItem> uniqueStepTestItems = new LinkedHashMap<>();
+
+        for (Map.Entry<Integer, ?> entry : rawStepComments.entrySet()) {
+            int stepIndex = entry.getKey();
+            if (entry.getValue() instanceof Collection<?> commentsList) {
+                for (Object commentObj : new HashSet<>(commentsList)) {
+                    if (commentObj instanceof String comment) {
+                        String normalizedComment = comment.trim();
+                        extractTagValue(normalizedComment, XrayTestTag.CASE)
+                                .ifPresent(stepTestCaseKey -> {
+                                    StepStatus stepStatus = determineStepStatus(failingIdx, stepIndex);
+                                    TestItem stepTestItem = new TestItem(
+                                            testCase.getTestTitle(),
+                                            stepTestCaseKey,
+                                            stepStatus.name(),
+                                            testPlan.key,
+                                            testExecutionTags.stream().findFirst().orElse(null),
+                                            envTags.isEmpty() ? environments : envTags,
+                                            stepDescriptions,
+                                            (failingIdx != null && stepIndex == failingIdx) ? result.getFailureReason().orElse(null) : null,
+                                            failingIdx
+                                    );
+
+                                    uniqueStepTestItems.merge(stepTestCaseKey, stepTestItem, this::mergeStepTestItems);
+                                });
+                    }
                 }
             }
         }
 
-    private static final GherkinScenario.ScenarioPosition DEFAULT_POSITION = new GherkinScenario.ScenarioPosition(-1, -1, -1);
+        for (TestItem stepTestItem : uniqueStepTestItems.values()) {
+            registerTestItem(testCase, stepTestItem, suite);
+        }
+    }
+
+    private TestItem mergeStepTestItems(TestItem existing, TestItem incoming) {
+        int existingPriority = xrayStatuses.indexOf(existing.status());
+        int incomingPriority = xrayStatuses.indexOf(incoming.status());
+        // Smaller index in xrayStatuses means more significant status (e.g. EXECUTING=0, FAILED=1, etc.)
+        if (incomingPriority >= 0 && (existingPriority < 0 || incomingPriority < existingPriority)) {
+            return incoming;
+        }
+        return existing;
+    }
+
+    private StepStatus determineStepStatus(Integer failingStepIndex, int stepZeroBasedIdx) {
+        if (failingStepIndex == null || stepZeroBasedIdx < failingStepIndex) {
+            return StepStatus.PASSED;
+        } else if (stepZeroBasedIdx == failingStepIndex) {
+            return StepStatus.FAILED;
+        } else {
+            return StepStatus.BLOCKED;
+        }
+    }
+
+    private static Collection<String> extractTags(Collection<String> tags, XrayTestTag xrayTag) {
+        return tags.stream()
+                .map(tag -> extractTagValue(tag, xrayTag))
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .map(Object::toString)
+                .collect(Collectors.toSet());
+    }
+
+    private static Optional<String> extractTagValue(String rawText, XrayTestTag xrayTag) {
+        if (rawText != null && rawText.startsWith(xrayTag.getTagValue())) {
+            String[] split = rawText.split(xrayTag.getTagValue(), 2);
+            if (split.length == 2) {
+                return Optional.of(split[1]);
+            } else {
+                return Optional.empty();
+            }
+        }
+        return Optional.empty();
+    }
+
     private GherkinScenario.ScenarioPosition getPosition(URI uri) {
 
         Map<String, String> params = Arrays.stream(uri.getQuery().split("&"))
@@ -698,28 +791,11 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         try {
             return new GherkinScenario.ScenarioPosition(Integer.parseInt(params.get(GherkinScenario.ScenarioPosition.RULE_INDEX)),
                     Integer.parseInt(params.get(GherkinScenario.ScenarioPosition.ORDINAL)),
-                            Integer.parseInt(params.get(GherkinScenario.ScenarioPosition.TABLE_INDEX))
-                    );
+                    Integer.parseInt(params.get(GherkinScenario.ScenarioPosition.TABLE_INDEX))
+            );
         } catch (RuntimeException e) {
             return DEFAULT_POSITION;
         }
-    }
-
-    private static List<String> extractTags(Collection<String> tags, String prefix) {
-        return tags.stream()
-                .filter(tag -> tag.toLowerCase().startsWith(prefix.toLowerCase()))
-                .map(tag -> {
-                    String[] split = tag.split("=", 2);
-                    if (split.length == 2) {
-                        return Optional.of(split[1]);
-                    } else {
-                        return Optional.empty();
-                    }
-                })
-                .filter(Optional::isPresent)
-                .map(Optional::get)
-                .map(Object::toString)
-                .toList();
     }
 
     public Collection<XrayTestExecution> getXrayPayload() {
@@ -741,9 +817,8 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
     }
 
     @Override
-    public void onAfterTestSuite(Collection<? extends TestCase> testCases,
-                                 org.antlr.v4.runtime.tree.ParseTreeVisitor<?> visitor, MetadataTestRunResults results,
-                                 String context) {
+    public void onAfterTestSuite(Collection<? extends TestCase> testCases, ParseTreeVisitor<?> visitor,
+                                 MetadataTestRunResults results, String context) {
         addResults(results.getTestResults());
     }
 }

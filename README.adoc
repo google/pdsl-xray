@@ -24,7 +24,7 @@ xray-test-env | No  | Yes | @xray-test-env=DEV,TST
 
 The associations can be done either with a normal gherkin tag, a tabular parameter, or both:
 
-By default a new execution will be created for however many groups of tests
+By default, a new execution will be created for however many groups of tests
 are extracted from the feature file. This is elaborated in more detail in the below feature
 file example, but the short answer is you will have a number of executions equal to  `[Distinct Test Plans] x
 [Distinct Test Environment Combinations]`
@@ -147,6 +147,16 @@ xray.api.url=https://xray.cloud.getxray.app/api/v2/authenticate
 
 
 `XrayAuth.fromPropertiesFile("src/test/resources/xray.properties")`
+
+[IMPORTANT]
+====
+To avoid accidentally publishing secrets to Git, run the following command:
+
+[source,bash]
+----
+git update-index --assume-unchanged src/test/resources/xray.properties
+----
+====
 
 ==== Xray Updater
 

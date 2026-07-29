@@ -1,21 +1,37 @@
 package com.google.pdsl.xray.core;
 
+import com.google.pdsl.xray.constants.StepStatus;
+import com.google.pdsl.xray.models.XrayTestExecution;
+import com.google.pdsl.xray.models.XrayTestResult;
+import com.pdsl.reports.TestResult;
+import com.pdsl.reports.proto.TechnicalReportData;
+import com.pdsl.specifications.Phrase;
+import com.pdsl.testcases.TaggedTestCase;
+import com.pdsl.testcases.TestCase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
+import java.util.Set;
 import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class XrayTestResultUpdaterTest {
@@ -59,4 +75,130 @@ class XrayTestResultUpdaterTest {
 
         assertDoesNotThrow(() -> xrayTestResultUpdaterBuilder.withPropertiesPath(propertiesFile).build());
     }
+
+    @Test
+    void addResults_withStepLevelComments_allPassed() {
+        XrayTestResultUpdater updater = xrayTestResultUpdaterBuilder.withXrayAuth(xrayAuth).build();
+
+        Map<Integer, List<String>> stepComments = new HashMap<>();
+        stepComments.put(1, List.of("@xray-test-case=STEP-KEY-1"));
+        stepComments.put(3, List.of("@xray-test-case=STEP-KEY-3"));
+        TaggedTestCase testCase = createMockTestCase(stepComments);
+
+        // Mock TestResult
+        TestResult result = Mockito.mock(TestResult.class);
+        when(result.getTestCase()).thenReturn(testCase);
+        when(result.getStatus()).thenReturn(TechnicalReportData.Status.PASSED);
+
+        updater.addResults(List.of(result));
+
+        XrayTestExecution testExecution = getTestExecution(updater, "EXEC-123");
+
+        assertEquals(3, testExecution.tests().size());
+        assertEquals(StepStatus.PASSED.name(), getTestStatus(testExecution, "STEP-KEY-1"));
+        assertEquals(StepStatus.PASSED.name(), getTestStatus(testExecution, "STEP-KEY-3"));
+        assertEquals(StepStatus.PASSED.name(), getTestStatus(testExecution, "SCENARIO-KEY"));
+    }
+
+    @Test
+    void addResults_withStepLevelComments_stepFailed() {
+        XrayTestResultUpdater updater = xrayTestResultUpdaterBuilder.withXrayAuth(xrayAuth).build();
+
+        // Setup step comments:
+        // Step 1 (index 1) has STEP-KEY-1 -> should be PASSED
+        // Step 2 (index 2) has STEP-KEY-2 -> should be FAILED
+        // Step 3 (index 3) has STEP-KEY-3 -> should be BLOCKED
+        Map<Integer, List<String>> stepComments = new HashMap<>();
+        stepComments.put(1, List.of("@xray-test-case=STEP-KEY-1"));
+        stepComments.put(2, List.of("@xray-test-case=STEP-KEY-2"));
+        stepComments.put(3, List.of("@xray-test-case=STEP-KEY-3"));
+        TaggedTestCase testCase = createMockTestCase(stepComments);
+
+        Phrase failingPhrase = Mockito.mock(Phrase.class);
+        when(failingPhrase.getPrefilteredIndex()).thenReturn(2);
+
+        // Mock TestResult
+        TestResult result = Mockito.mock(TestResult.class);
+        when(result.getTestCase()).thenReturn(testCase);
+        when(result.getStatus()).thenReturn(TechnicalReportData.Status.FAILED);
+        when(result.getFailureReason()).thenReturn(Optional.of(new RuntimeException("Test Failure")));
+        when(result.getFailingPhrase()).thenReturn(Optional.of(failingPhrase));
+
+        updater.addResults(List.of(result));
+
+        XrayTestExecution testExecution = getTestExecution(updater, "EXEC-123");
+
+        // SCENARIO-KEY, STEP-KEY-1, STEP-KEY-2, STEP-KEY-3
+        assertEquals(4, testExecution.tests().size());
+        assertEquals(StepStatus.FAILED.name(), getTestStatus(testExecution, "SCENARIO-KEY"));
+        assertEquals(StepStatus.PASSED.name(), getTestStatus(testExecution, "STEP-KEY-1"));
+        assertEquals(StepStatus.FAILED.name(), getTestStatus(testExecution, "STEP-KEY-2"));
+        assertEquals(StepStatus.BLOCKED.name(), getTestStatus(testExecution, "STEP-KEY-3"));
+    }
+
+    @Test
+    void addResults_withDuplicateStepLevelComments_avoidsDuplicatesAndConsolidatesStatus() {
+        XrayTestResultUpdater updater = xrayTestResultUpdaterBuilder.withXrayAuth(xrayAuth).build();
+
+        // given
+        // Step 1 (index 1) has STEP-KEY-1 -> should be PASSED
+        // Step 2 (index 2) has STEP-KEY-1 (duplicate) -> should be FAILED
+        // Step 3 (index 3) has STEP-KEY-1 (duplicate) -> should be BLOCKED
+        Map<Integer, List<String>> stepComments = new HashMap<>();
+        stepComments.put(1, List.of("@xray-test-case=STEP-KEY-1"));
+        stepComments.put(2, List.of("@xray-test-case=STEP-KEY-1"));
+        stepComments.put(3, List.of("@xray-test-case=STEP-KEY-1"));
+        TaggedTestCase testCase = createMockTestCase(stepComments);
+
+        Phrase failingPhrase = Mockito.mock(Phrase.class);
+        when(failingPhrase.getPrefilteredIndex()).thenReturn(1);
+
+        // when
+        TestResult result = Mockito.mock(TestResult.class);
+        when(result.getTestCase()).thenReturn(testCase);
+        when(result.getStatus()).thenReturn(TechnicalReportData.Status.FAILED);
+        when(result.getFailingPhrase()).thenReturn(Optional.of(failingPhrase));
+
+        updater.addResults(List.of(result));
+
+        XrayTestExecution testExecution = getTestExecution(updater, "EXEC-123");
+
+        // then
+        // Only 2 distinct tests: SCENARIO-KEY, STEP-KEY-1 (no duplicates)
+        assertEquals(2, testExecution.tests().size());
+        assertEquals(StepStatus.FAILED.name(), getTestStatus(testExecution, "SCENARIO-KEY"));
+        // Overall status of STEP-KEY-1 should be FAILED since one of the steps failed
+        assertEquals(StepStatus.FAILED.name(), getTestStatus(testExecution, "STEP-KEY-1"));
+    }
+
+    private TaggedTestCase createMockTestCase(Map<Integer, List<String>> stepComments) {
+        TaggedTestCase testCase = Mockito.mock(TaggedTestCase.class);
+        when(testCase.getTags()).thenReturn(Set.of("@xray-test-plan=PLAN-123", "@xray-test-execution=EXEC-123", "@xray-test-case=SCENARIO-KEY"));
+        when(testCase.getOriginalSource()).thenReturn(URI.create("file:/some/path?ruleIndex=1&ordinal=2&tableIndex=3"));
+        when(testCase.getTestTitle()).thenReturn("My Scenario");
+        when(testCase.getUnfilteredPhraseBody()).thenReturn(List.of("Given step one", "When step two", "Then step three"));
+
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put(TestCase.STEP_COMMENTS, stepComments);
+        when(testCase.getMetadata()).thenReturn(metadata);
+        return testCase;
+    }
+
+    private XrayTestExecution getTestExecution(XrayTestResultUpdater updater, String testExecutionKey) {
+
+        Collection<XrayTestExecution> payloads = updater.getXrayPayload().stream().toList();
+        assertEquals(1, payloads.size());
+        XrayTestExecution testExecution = payloads.iterator().next();
+        assertEquals(testExecutionKey, testExecution.testExecutionKey());
+        return testExecution;
+    }
+
+    private String getTestStatus(XrayTestExecution testExecution, String testKey) {
+        XrayTestResult result = testExecution.tests().stream()
+                .filter(r -> r.testKey().equals(testKey))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Could not find test with key " + testKey));
+        return result.status();
+    }
+
 }
