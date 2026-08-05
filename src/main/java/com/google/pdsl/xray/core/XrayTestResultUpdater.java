@@ -20,13 +20,24 @@ import com.pdsl.testcases.TaggedTestCase;
 import com.pdsl.testcases.TestCase;
 import org.antlr.v4.runtime.tree.ParseTreeListener;
 import org.antlr.v4.runtime.tree.ParseTreeVisitor;
-import org.apache.commons.codec.Charsets;
+import org.apache.hc.client5.http.classic.methods.HttpPost;
+import org.apache.hc.client5.http.entity.EntityBuilder;
+import org.apache.hc.client5.http.entity.mime.MultipartEntityBuilder;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpResponse;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.core5.http.ClassicHttpResponse;
+import org.apache.hc.core5.http.ContentType;
+import org.apache.hc.core5.http.HttpHeaders;
+import org.apache.hc.core5.http.HttpResponse;
+import org.apache.hc.core5.http.io.entity.EntityUtils;
+import org.apache.hc.core5.http.message.BasicClassicHttpResponse;
 import com.google.pdsl.xray.core.model.TestPlan;
 import com.google.pdsl.xray.core.model.TestItem;
 
-
 import java.io.IOException;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -402,14 +413,14 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
    * there will be 3 executions created. The implementation cannot
    * consolidate this down to 2 executions based on the shared environments because
    * some users of XRAY will specify operations systems (such as iOS or Android) with
-   * the environments. Currently we have no feature that allows us to distinguish between
+   * the environments. Currently, we have no feature that allows us to distinguish between
    * environments we could safely factor out and combine with other executions and others
    * that must be coupled to their original groups of environments.
    *
    * @return List of HTTPResponse: the responses from each attempt to create a test execution
    */
-  public List<org.apache.http.HttpResponse> publishReportsToXray() {
-    List<org.apache.http.HttpResponse> responses = new ArrayList<>();
+  public List<HttpResponse> publishReportsToXray() {
+    List<HttpResponse> responses = new ArrayList<>();
     boolean debugging = false;
     if (debugging) {
       System.setProperty("org.apache.commons.logging.Log", "org.apache.commons.logging.impl.SimpleLog");
@@ -425,7 +436,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
 
     try {
       info = Files.writeString(tempDirectory.resolve(String.format("info-%s.json", UUID.randomUUID())),
-        objectMapper.writeValueAsString(fieldSupplier.get()), Charsets.UTF_8,
+        objectMapper.writeValueAsString(fieldSupplier.get()), StandardCharsets.UTF_8,
         StandardOpenOption.CREATE_NEW);
       info.toFile().deleteOnExit();
       for (HierarchicalTestSuite suite : testCaseXrayTestExecutionResultMap.values()) {
@@ -433,7 +444,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
           String requestBody = objectMapper.writeValueAsString(executionResult);
           // Convert the request to files as per the xray API specification
           Path results = Files.writeString(tempDirectory.resolve(Path.of(String.format("results-%s.json", UUID.randomUUID()))),
-            requestBody, Charsets.UTF_8,
+            requestBody, StandardCharsets.UTF_8,
             StandardOpenOption.CREATE_NEW);
           results.toFile().deleteOnExit();
 
@@ -466,8 +477,8 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
    *
    * @return List of HTTPResponse: the response from the single attempt to create a test execution
    */
-  public List<org.apache.http.HttpResponse> publishConsolidatedReportsToXray() {
-    List<org.apache.http.HttpResponse> responses = new ArrayList<>();
+  public List<HttpResponse> publishConsolidatedReportsToXray() {
+    List<HttpResponse> responses = new ArrayList<>();
     boolean debugging = false;
     if (debugging) {
       System.setProperty("org.apache.commons.logging.Log", "org.apache.commons.logging.impl.SimpleLog");
@@ -484,7 +495,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
 
     try {
       info = Files.writeString(tempDirectory.resolve(String.format("info-%s.json", UUID.randomUUID())),
-        objectMapper.writeValueAsString(fieldSupplier.get()), Charsets.UTF_8,
+        objectMapper.writeValueAsString(fieldSupplier.get()), StandardCharsets.UTF_8,
         StandardOpenOption.CREATE_NEW);
       info.toFile().deleteOnExit();
 
@@ -526,7 +537,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
       String requestBody = objectMapper.writeValueAsString(finalExecution);
 
       results = Files.writeString(tempDirectory.resolve(Path.of(String.format("results-%s.json", UUID.randomUUID()))),
-        requestBody, Charsets.UTF_8,
+        requestBody, StandardCharsets.UTF_8,
         StandardOpenOption.CREATE_NEW);
       results.toFile().deleteOnExit();
 
@@ -712,7 +723,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         }
         if (failingStepIndex < startIndex) {
             return StepStatus.BLOCKED;
-        } else if (failingStepIndex >= startIndex && failingStepIndex < endIndex) {
+        } else if (failingStepIndex < endIndex) {
             return StepStatus.FAILED;
         } else {
             return StepStatus.PASSED;
