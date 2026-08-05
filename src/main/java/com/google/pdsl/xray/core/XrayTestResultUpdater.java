@@ -215,7 +215,8 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
                     """, tempDirectoryPath.toUri()));
         }
     }
-    private record TestItem(String title, String testKey, String status, String testPlanKey, String testExecutionKey,
+
+    protected record TestItem(String title, String testKey, String status, String testPlanKey, String testExecutionKey,
                             Set<String> environments,
                             List<String> stepDescription,
                             Throwable throwable,
@@ -709,6 +710,8 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
 
         Map<String, TestItem> uniqueStepTestItems = new LinkedHashMap<>();
 
+        List<Integer> sortedActiveAnnotatedIndices = getSortedActiveAnnotatedIndices(rawStepComments);
+
         for (Map.Entry<Integer, ?> entry : rawStepComments.entrySet()) {
             int stepIndex = entry.getKey();
             if (entry.getValue() instanceof Collection<?> commentsList) {
@@ -717,7 +720,11 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
                         String normalizedComment = comment.trim();
                         extractTagValue(normalizedComment, XrayTestTag.CASE)
                                 .ifPresent(stepTestCaseKey -> {
-                                    StepStatus stepStatus = determineStepStatus(failingIdx, stepIndex);
+                                    int startIndex = calculateStartIndex(stepIndex, stepDescriptions.size());
+                                    int endIndex = calculateEndIndex(stepIndex, sortedActiveAnnotatedIndices, stepDescriptions.size());
+                                    List<String> subStepDescriptions = stepDescriptions.subList(startIndex, endIndex);
+
+                                    StepStatus stepStatus = determineStepStatus(failingIdx, startIndex, endIndex);
                                     TestItem stepTestItem = new TestItem(
                                             testCase.getTestTitle(),
                                             stepTestCaseKey,
@@ -725,8 +732,8 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
                                             testPlan.key,
                                             testExecutionTags.stream().findFirst().orElse(null),
                                             envTags.isEmpty() ? environments : envTags,
-                                            stepDescriptions,
-                                            (failingIdx != null && stepIndex == failingIdx) ? result.getFailureReason().orElse(null) : null,
+                                            subStepDescriptions,
+                                            (failingIdx != null && failingIdx >= startIndex && failingIdx < endIndex) ? result.getFailureReason().orElse(null) : null,
                                             failingIdx
                                     );
 
@@ -742,6 +749,26 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         }
     }
 
+    private static List<Integer> getSortedActiveAnnotatedIndices(Map<Integer, ?> rawStepComments) {
+        Set<Integer> uniqueActiveAnnotatedIndices = new HashSet<>();
+        for (Map.Entry<Integer, ?> entry : rawStepComments.entrySet()) {
+            int stepIdxVal = entry.getKey();
+            if (stepIdxVal > 0 && entry.getValue() instanceof Collection<?> commentsList) {
+                for (Object commentObj : commentsList) {
+                    if (commentObj instanceof String comment) {
+                        if (extractTagValue(comment.trim(), XrayTestTag.CASE).isPresent()) {
+                            uniqueActiveAnnotatedIndices.add(stepIdxVal);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        List<Integer> sortedActiveAnnotatedIndices = new ArrayList<>(uniqueActiveAnnotatedIndices);
+        Collections.sort(sortedActiveAnnotatedIndices);
+        return sortedActiveAnnotatedIndices;
+    }
+
     private TestItem mergeStepTestItems(TestItem existing, TestItem incoming) {
         int existingPriority = xrayStatuses.indexOf(existing.status());
         int incomingPriority = xrayStatuses.indexOf(incoming.status());
@@ -752,13 +779,16 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         return existing;
     }
 
-    private StepStatus determineStepStatus(Integer failingStepIndex, int stepZeroBasedIdx) {
-        if (failingStepIndex == null || stepZeroBasedIdx < failingStepIndex) {
+    private StepStatus determineStepStatus(Integer failingStepIndex, int startIndex, int endIndex) {
+        if (failingStepIndex == null) {
             return StepStatus.PASSED;
-        } else if (stepZeroBasedIdx == failingStepIndex) {
+        }
+        if (failingStepIndex < startIndex) {
+            return StepStatus.BLOCKED;
+        } else if (failingStepIndex >= startIndex && failingStepIndex < endIndex) {
             return StepStatus.FAILED;
         } else {
-            return StepStatus.BLOCKED;
+            return StepStatus.PASSED;
         }
     }
 
@@ -798,9 +828,42 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         }
     }
 
+    private static int calculateStartIndex(int stepIndex, int totalSteps) {
+        return stepIndex <= 0 ? 0 : Math.min(stepIndex - 1, totalSteps);
+    }
+
+    private static int calculateEndIndex(int stepIndex, List<Integer> sortedActiveAnnotatedIndices, int totalSteps) {
+        if (stepIndex <= 0) {
+            return totalSteps;
+        }
+        int endIndex = totalSteps;
+        for (int idx : sortedActiveAnnotatedIndices) {
+            if (idx > stepIndex) {
+                endIndex = idx - 1;
+                break;
+            }
+        }
+        int startIndex = calculateStartIndex(stepIndex, totalSteps);
+        return Math.max(startIndex, Math.min(endIndex, totalSteps));
+    }
+
     public Collection<XrayTestExecution> getXrayPayload() {
         return testCaseXrayTestExecutionResultMap.values().stream()
                 .flatMap(s -> s.info2Results().stream())
+                .toList();
+    }
+
+    // Visible for testing
+    protected List<TestItem> getTestItemsForTestPlan(String testPlanKey) {
+        HierarchicalTestSuite suite = testCaseXrayTestExecutionResultMap.get(testPlanKey);
+        if (suite == null) {
+            return List.of();
+        }
+        return suite.source2TestGroups.values().stream()
+                .flatMap(List::stream)
+                .flatMap(g -> g.ordinals.values().stream())
+                .flatMap(o -> o.permutations.stream())
+                .map(p -> p.result)
                 .toList();
     }
 
