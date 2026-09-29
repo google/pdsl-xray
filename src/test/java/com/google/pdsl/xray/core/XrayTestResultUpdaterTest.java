@@ -9,6 +9,8 @@ import com.pdsl.reports.proto.TechnicalReportData;
 import com.pdsl.specifications.Phrase;
 import com.pdsl.testcases.TaggedTestCase;
 import com.pdsl.testcases.TestCase;
+import org.apache.http.HttpResponse;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -284,8 +286,8 @@ class XrayTestResultUpdaterTest {
 
         // When there are no executions, it should short-circuit and return an empty list of responses
         assertDoesNotThrow(() -> {
-            java.util.List<org.apache.http.HttpResponse> responses = updater.publishConsolidatedReportsToXray();
-            org.junit.jupiter.api.Assertions.assertTrue(responses.isEmpty());
+            List<HttpResponse> responses = updater.publishConsolidatedReportsToXray();
+            Assertions.assertTrue(responses.isEmpty());
         });
     }
 
