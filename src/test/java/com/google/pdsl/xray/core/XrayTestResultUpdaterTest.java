@@ -265,4 +265,27 @@ class XrayTestResultUpdaterTest {
         return result.status();
     }
 
+
+    @Test
+    void build_withFilterTestsByTestPlan_doesNotThrowException() {
+        assertDoesNotThrow(() -> xrayTestResultUpdaterBuilder
+                .withXrayAuth(xrayAuth)
+                .withFilterTestsByTestPlan(true)
+                .build());
+    }
+
+    @Test
+    void publishConsolidatedReportsToXray_emptyExecutions_returnsEmptyResponses() {
+        XrayTestResultUpdater updater = xrayTestResultUpdaterBuilder
+                .withXrayAuth(xrayAuth)
+                .withFilterTestsByTestPlan(true)
+                .build();
+
+        // When there are no executions, it should short-circuit and return an empty list of responses
+        assertDoesNotThrow(() -> {
+            java.util.List<org.apache.http.HttpResponse> responses = updater.publishConsolidatedReportsToXray();
+            org.junit.jupiter.api.Assertions.assertTrue(responses.isEmpty());
+        });
+    }
+
 }

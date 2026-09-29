@@ -1,6 +1,7 @@
 package com.google.pdsl.xray.core;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
 import com.google.pdsl.xray.constants.StepStatus;
@@ -26,6 +27,7 @@ import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.ByteArrayEntity;
 import org.apache.http.entity.ContentType;
+import org.apache.http.entity.StringEntity;
 import org.apache.http.entity.mime.MultipartEntityBuilder;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
@@ -77,6 +79,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
     private final Supplier<Map<Object, Object>> fieldSupplier;
     private final Path tempDirectory;
     private final List<String> xrayStatuses;
+    private final boolean filterTestsByTestPlan;
 
     private record TestPlan(String key, List<XrayTestCase> testCases) {
         private record XrayTestCase(String key, Set<String> environments, URI uri) {
@@ -110,6 +113,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         this.fieldSupplier = builder.fieldSupplier;
         this.objectMapper = builder.objectMapper;
         this.xrayStatuses = builder.xrayStatuses;
+        this.filterTestsByTestPlan = builder.filterTestsByTestPlan.orElse(false);
     }
     public static class Builder {
         private static final ObjectMapper defaultObjectMapper = new ObjectMapper();
@@ -117,6 +121,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         private ObjectMapper objectMapper = defaultObjectMapper;
         private Optional<Path> prop = Optional.empty();
         private Optional<Set<String>> environments = Optional.empty();
+        private Optional<Boolean> filterTestsByTestPlan = Optional.empty();
         private String description;
         private String title;
         private Supplier<Map<Object, Object>> fieldSupplier;
@@ -138,6 +143,11 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
             this.title = title;
             this.description = description;
             this.fieldSupplier = fieldSupplier;
+        }
+
+        public Builder withFilterTestsByTestPlan(boolean filterTestsByTestPlan) {
+            this.filterTestsByTestPlan = Optional.of(filterTestsByTestPlan);
+            return this;
         }
 
         public Builder withXrayStatuses(List<String> xrayStatuses) {
@@ -523,6 +533,18 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         consolidatedTests.addAll(execution.tests());
       }
 
+      if (filterTestsByTestPlan && masterExecution.info().testPlanKey() != null) {
+        Set<String> testsInPlan = fetchTestsFromTestPlan(masterExecution.info().testPlanKey());
+        consolidatedTests.removeIf(test -> !testsInPlan.contains(test.testKey()));
+        if (consolidatedTests.isEmpty()) {
+          logger.info("No test results found after filtering by test plan. Skipping publishing.");
+          @SuppressWarnings("unused") boolean unused = info.toFile().delete();
+          testCaseXrayTestExecutionResultMap.clear();
+          tempDirectory.toFile().deleteOnExit();
+          return responses;
+        }
+      }
+
       XrayTestExecution finalExecution = new XrayTestExecution(
         masterExecution.testExecutionKey(),
         masterExecution.info(),
@@ -554,7 +576,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
   }
 
   private void postXrayExecution(Path results, Path info, List<org.apache.http.HttpResponse> responses) throws IOException {
-    HttpPost post = new HttpPost(getXrayReportUrl());
+    HttpPost post = new HttpPost(getXrayReportBaseUrl() + "/import/execution/multipart");
     post.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + xrayAuth.getAuthToken());
     post.addHeader(HttpHeaders.CONTENT_TYPE, String.format("%s; boundary=%s",
       ContentType.MULTIPART_FORM_DATA.getMimeType(),
@@ -611,13 +633,81 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         return clonedResponse;
     }
 
+    private Set<String> fetchTestsFromTestPlan(String testPlanKey) {
+        if (testPlanKey == null || testPlanKey.isEmpty()) {
+            return Collections.emptySet();
+        }
+
+        Set<String> testKeys = new HashSet<>();
+        int start = 0;
+        int limit = 100;
+        boolean hasMore = true;
+
+        try (CloseableHttpClient client = HttpClients.createDefault()) {
+            HttpPost post = new HttpPost(getXrayReportBaseUrl() + "/graphql");
+            post.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + xrayAuth.getAuthToken());
+            post.addHeader(HttpHeaders.CONTENT_TYPE, "application/json");
+
+            while (hasMore) {
+                String graphqlQuery = """
+                        {
+                            "query": "{ getTestPlans(jql: \\"issue = '%s'\\", limit: 1) { results { tests(limit: %d, start: %d) { total results { jira(fields: [\\"key\\"]) } } } } }"
+                        }
+                        """.formatted(testPlanKey, limit, start);
+                
+                post.setEntity(new StringEntity(graphqlQuery, StandardCharsets.UTF_8));
+                
+                try (CloseableHttpResponse response = client.execute(post)) {
+                    if (response.getStatusLine().getStatusCode() >= 200 && response.getStatusLine().getStatusCode() < 300) {
+                        String jsonResponse = EntityUtils.toString(response.getEntity());
+                        JsonNode root = objectMapper.readTree(jsonResponse);
+
+                        JsonNode results = root.at("/data/getTestPlans/results");
+                        if (results.isArray() && !results.isEmpty()) {
+                            JsonNode testsConnection = results.get(0).at("/tests");
+                            JsonNode testsResults = testsConnection.get("results");
+
+                            if (testsResults != null && testsResults.isArray()) {
+                                for (JsonNode testNode : testsResults) {
+                                    JsonNode keyNode = testNode.at("/jira/key");
+                                    if (!keyNode.isMissingNode() && !keyNode.isNull()) {
+                                        testKeys.add(keyNode.asText());
+                                    }
+                                }
+                            }
+
+                            JsonNode totalNode = testsConnection.get("total");
+                            if (totalNode != null && totalNode.isInt()) {
+                                int total = totalNode.asInt();
+                                start += limit;
+                                if (start >= total) {
+                                    hasMore = false;
+                                }
+                            } else {
+                                hasMore = false;
+                            }
+                        } else {
+                            hasMore = false;
+                        }
+                    } else {
+                        logger.severe("Failed to fetch test plan tests from Xray: " + response.getStatusLine());
+                        hasMore = false;
+                    }
+                }
+            }
+        } catch (IOException e) {
+            logger.severe("Error fetching tests from test plan: " + e.getMessage());
+        }
+        return testKeys;
+    }
+
     /**
-     * Retrieves the Xray report URL used by the updater.
+     * Retrieves the Xray report Base URL used by the updater.
      *
      * @return The Xray report URL.
      */
-    private String getXrayReportUrl() {
-        return "https://xray.cloud.getxray.app/api/v2/import/execution/multipart";
+    private String getXrayReportBaseUrl() {
+        return "https://xray.cloud.getxray.app/api/v2";
     }
 
     /**
