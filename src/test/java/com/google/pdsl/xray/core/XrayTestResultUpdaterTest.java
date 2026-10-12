@@ -1,6 +1,7 @@
 package com.google.pdsl.xray.core;
 
 import com.google.pdsl.xray.constants.StepStatus;
+import com.google.pdsl.xray.core.model.TestItem;
 import com.google.pdsl.xray.models.XrayTestExecution;
 import com.google.pdsl.xray.models.XrayTestResult;
 import com.pdsl.reports.TestResult;
@@ -8,6 +9,8 @@ import com.pdsl.reports.proto.TechnicalReportData;
 import com.pdsl.specifications.Phrase;
 import com.pdsl.testcases.TaggedTestCase;
 import com.pdsl.testcases.TestCase;
+import org.apache.http.HttpResponse;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -208,27 +211,27 @@ class XrayTestResultUpdaterTest {
         updater.addResults(List.of(result));
 
         // Let's assert on the TestItems stepDescriptions using our new testing helper
-        List<XrayTestResultUpdater.TestItem> testItems = updater.getTestItemsForTestPlan(TEST_PLAN_KEY);
+        List<TestItem> testItems = updater.getTestItemsForTestPlan(TEST_PLAN_KEY);
 
-        XrayTestResultUpdater.TestItem beforeTestItem = testItems.stream()
+        TestItem beforeTestItem = testItems.stream()
                 .filter(item -> item.testKey().equals("BEFORE-KEY"))
                 .findFirst()
                 .orElseThrow();
         assertEquals(STEP_DESCRIPTIONS_LIST, beforeTestItem.stepDescription());
 
-        XrayTestResultUpdater.TestItem step1TestItem = testItems.stream()
+        TestItem step1TestItem = testItems.stream()
                 .filter(item -> item.testKey().equals("STEP-1-KEY"))
                 .findFirst()
                 .orElseThrow();
         assertEquals(STEP_DESCRIPTIONS_LIST.subList(0, 1), step1TestItem.stepDescription());
 
-        XrayTestResultUpdater.TestItem step2TestItem = testItems.stream()
+        TestItem step2TestItem = testItems.stream()
                 .filter(item -> item.testKey().equals("STEP-2-KEY"))
                 .findFirst()
                 .orElseThrow();
         assertEquals(STEP_DESCRIPTIONS_LIST.subList(1, 2), step2TestItem.stepDescription());
 
-        XrayTestResultUpdater.TestItem step3TestItem = testItems.stream()
+        TestItem step3TestItem = testItems.stream()
                 .filter(item -> item.testKey().equals("STEP-3-KEY"))
                 .findFirst()
                 .orElseThrow();
@@ -263,6 +266,29 @@ class XrayTestResultUpdaterTest {
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Could not find test with key " + testKey));
         return result.status();
+    }
+
+
+    @Test
+    void build_withFilterTestsByTestPlan_doesNotThrowException() {
+        assertDoesNotThrow(() -> xrayTestResultUpdaterBuilder
+                .withXrayAuth(xrayAuth)
+                .withFilterTestsByTestPlan(true)
+                .build());
+    }
+
+    @Test
+    void publishConsolidatedReportsToXray_emptyExecutions_returnsEmptyResponses() {
+        XrayTestResultUpdater updater = xrayTestResultUpdaterBuilder
+                .withXrayAuth(xrayAuth)
+                .withFilterTestsByTestPlan(true)
+                .build();
+
+        // When there are no executions, it should short-circuit and return an empty list of responses
+        assertDoesNotThrow(() -> {
+            List<HttpResponse> responses = updater.publishConsolidatedReportsToXray();
+            Assertions.assertTrue(responses.isEmpty());
+        });
     }
 
 }
