@@ -9,7 +9,8 @@ import com.pdsl.reports.proto.TechnicalReportData;
 import com.pdsl.specifications.Phrase;
 import com.pdsl.testcases.TaggedTestCase;
 import com.pdsl.testcases.TestCase;
-import org.apache.http.HttpResponse;
+
+import org.apache.hc.core5.http.HttpResponse;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
