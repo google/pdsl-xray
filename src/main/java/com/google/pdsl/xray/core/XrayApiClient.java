@@ -1,18 +1,22 @@
 package com.google.pdsl.xray.core;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.http.HttpHeaders;
-import org.apache.http.HttpResponse;
-import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.entity.ByteArrayEntity;
-import org.apache.http.entity.ContentType;
-import org.apache.http.entity.StringEntity;
-import org.apache.http.entity.mime.MultipartEntityBuilder;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClients;
-import org.apache.http.message.BasicHttpResponse;
-import org.apache.http.util.EntityUtils;
+import com.google.pdsl.xray.core.model.ParseResult;
+import org.apache.hc.client5.http.classic.methods.HttpPost;
+import org.apache.hc.client5.http.entity.EntityBuilder;
+import org.apache.hc.client5.http.entity.mime.MultipartEntityBuilder;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpResponse;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.core5.http.ClassicHttpResponse;
+import org.apache.hc.core5.http.ContentType;
+import org.apache.hc.core5.http.HttpHeaders;
+import org.apache.hc.core5.http.HttpResponse;
+import org.apache.hc.core5.http.ParseException;
+import org.apache.hc.core5.http.io.entity.EntityUtils;
+import org.apache.hc.core5.http.io.entity.StringEntity;
+import org.apache.hc.core5.http.message.BasicClassicHttpResponse;
+import org.apache.hc.core5.http.message.BasicHttpResponse;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -22,13 +26,13 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.logging.Logger;
-import com.google.pdsl.xray.core.model.ParseResult;
 
 /**
  * XrayApiClient handles all HTTP communication with the Xray API.
  */
 public class XrayApiClient {
 
+    public static final String IMPORT_MULTIPART_ENDPOINT = "/import/execution/multipart";
     private final XrayAuth xrayAuth;
     private final ObjectMapper objectMapper;
     private final Logger logger = Logger.getLogger(this.getClass().getName());
@@ -61,8 +65,8 @@ public class XrayApiClient {
      * @param responses a list to which the cloned HTTP response from the execution import will be added
      * @throws IOException if an I/O error occurs during the HTTP request or file reading
      */
-    public void postXrayExecution(Path results, Path info, List<org.apache.http.HttpResponse> responses) throws IOException {
-        HttpPost post = new HttpPost(getXrayReportBaseUrl() + "/import/execution/multipart");
+    public void postXrayExecution(Path results, Path info, List<HttpResponse> responses) throws IOException {
+        HttpPost post = new HttpPost(getXrayReportBaseUrl() + IMPORT_MULTIPART_ENDPOINT);
         post.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + xrayAuth.getAuthToken());
         post.addHeader(HttpHeaders.CONTENT_TYPE, String.format("%s; boundary=%s",
                 ContentType.MULTIPART_FORM_DATA.getMimeType(),
@@ -80,15 +84,17 @@ public class XrayApiClient {
 
         try (CloseableHttpClient client = HttpClients.createDefault();
              CloseableHttpResponse response = client.execute(post)) {
-            HttpResponse clonedResponse = cloneResponseIntoMemory(response);
+            ClassicHttpResponse clonedResponse = cloneResponseIntoMemory(response);
             responses.add(clonedResponse);
-            final int statusCode = response.getStatusLine().getStatusCode();
+            final int statusCode = response.getCode();
             if (statusCode >= 200 && statusCode < 300) {
                 logger.info(String.format("Xray test execution results imported successfully\n%s%n",
                         new String(clonedResponse.getEntity().getContent().readAllBytes())));
             } else {
-                logger.severe(String.format("Failed to import Xray test execution results: %s - %s%n",
-                        response.getStatusLine(), new String(clonedResponse.getEntity().getContent().readAllBytes())));
+                logger.severe(String.format("Failed to import Xray test execution results: %d %s - %s%n",
+                        response.getCode(),
+                        response.getReasonPhrase(),
+                        new String(clonedResponse.getEntity().getContent().readAllBytes(), StandardCharsets.UTF_8)));
             }
         }
     }
@@ -101,22 +107,24 @@ public class XrayApiClient {
      * @return a {@link BasicHttpResponse} whose entity has been fully buffered into memory
      * @throws IOException if an error occurs while reading the response entity
      */
-    private BasicHttpResponse cloneResponseIntoMemory(HttpResponse originalResponse) throws IOException {
-        BasicHttpResponse clonedResponse = new BasicHttpResponse(originalResponse.getStatusLine());
+    private BasicClassicHttpResponse cloneResponseIntoMemory(ClassicHttpResponse originalResponse) throws IOException {
+        BasicClassicHttpResponse clonedResponse =
+                new BasicClassicHttpResponse(originalResponse.getCode(), originalResponse.getReasonPhrase());
 
-        clonedResponse.setHeaders(originalResponse.getAllHeaders());
+        clonedResponse.setHeaders(originalResponse.getHeaders());
 
         if (originalResponse.getEntity() != null) {
-            ByteArrayEntity memoryEntity = new ByteArrayEntity(EntityUtils.toByteArray(originalResponse.getEntity()));
-
+            byte[] bytes = EntityUtils.toByteArray(originalResponse.getEntity());
+            ContentType contentType = null;
             if (originalResponse.getEntity().getContentType() != null) {
-                memoryEntity.setContentType(originalResponse.getEntity().getContentType());
-            }
-            if (originalResponse.getEntity().getContentEncoding() != null) {
-                memoryEntity.setContentEncoding(originalResponse.getEntity().getContentEncoding());
+                contentType = ContentType.parse(originalResponse.getEntity().getContentType());
             }
 
-            clonedResponse.setEntity(memoryEntity);
+            clonedResponse.setEntity(EntityBuilder.create()
+                    .setBinary(bytes)
+                    .setContentType(contentType)
+                    .setContentEncoding(originalResponse.getEntity().getContentEncoding())
+                    .build());
         }
 
         return clonedResponse;
@@ -151,17 +159,18 @@ public class XrayApiClient {
                             "query": "{ getTestPlans(jql: \\"issue = '%s'\\", limit: 1) { results { tests(limit: %d, start: %d) { total results { jira(fields: [\\"key\\"]) } } } } }"
                         }
                         """.formatted(testPlanKey, limit, start);
-                
+
                 post.setEntity(new StringEntity(graphqlQuery, StandardCharsets.UTF_8));
-                
+
                 try (CloseableHttpResponse response = client.execute(post)) {
 
-                    if (response.getStatusLine().getStatusCode() >= 200 && response.getStatusLine().getStatusCode() < 300) {
+                    final int statusCode = response.getCode();
+                    if (statusCode >= 200 && statusCode < 300) {
                         String jsonResponse = EntityUtils.toString(response.getEntity());
                         ParseResult parseResult = parser.extractTests(jsonResponse);
-                        
+
                         testKeys.addAll(parseResult.testKeys());
-                        
+
                         if (parseResult.total() > 0) {
                             start += limit;
                             if (start >= parseResult.total()) {
@@ -171,15 +180,17 @@ public class XrayApiClient {
                             hasMore = false;
                         }
                     } else {
-                        logger.severe("Failed to fetch test plan tests from Xray: " + response.getStatusLine());
+                        logger.severe("Failed to fetch test plan tests from Xray: " + statusCode);
                         hasMore = false;
                     }
+                } catch (ParseException e) {
+                    throw new RuntimeException(e);
                 }
             }
         } catch (IOException e) {
             logger.severe("Error fetching tests from test plan: " + e.getMessage());
         }
-        
+
         return testKeys;
     }
 }
