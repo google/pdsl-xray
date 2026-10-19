@@ -112,6 +112,69 @@ Feature:
 
 --
 
+=== Step-Level Test Cases
+
+In addition to scenario-level test cases, you can associate individual steps within a scenario to distinct Xray test cases using comments directly above the steps:
+
+[source,gherkin]
+--
+Feature: Step-level tracking
+
+  @xray-test-plan=PROJ-123
+  @xray-test-execution=EXEC-456
+  @xray-test-case=SCENARIO-KEY
+  Scenario: Step status tracking example
+    #@xray-test-case=STEP-1-KEY
+    Given step one passes
+    #@xray-test-case=STEP-2-KEY
+    When step two fails
+    #@xray-test-case=STEP-3-KEY
+    Then step three is blocked
+--
+
+==== How Step-Level Tracking Works
+
+1. **Step Tagging:**
+   Use `#@xray-test-case=<TEST-KEY>` as a comment immediately before the step phrase. PDSL extracts step comments into `TestCase.STEP_COMMENTS`.
+
+2. **Subsuming Subsequent Unannotated Steps:**
+   If a step does not have its own `#@xray-test-case` comment, it is automatically grouped into the preceding annotated step. That step encompasses all phrases until the next `#@xray-test-case` or the end of the scenario:
++
+[source,gherkin]
+--
+    #@xray-test-case=STEP-1-KEY
+    Given step A
+    And step B
+    #@xray-test-case=STEP-2-KEY
+    When step C
+    Then step D
+--
++
+In this example:
+* `STEP-1-KEY` contains `Given step A` and `And step B`.
+* `STEP-2-KEY` contains `When step C` and `Then step D`.
+
+3. **Status Determination & Propagation:**
+   When a scenario executes, the updater determines each step's execution status based on where any failure occurred:
+   * *PASSED*: Steps that executed successfully prior to any failure.
+   * *FAILED*: The specific step (or subsumed range) where the failure occurred.
+   * *BLOCKED*: Subsequent steps that were prevented from executing due to the earlier failure.
+
+   *Example (3-step scenario where Step 2 fails):*
+   * Step 1 (`STEP-1-KEY`): `PASSED`
+   * Step 2 (`STEP-2-KEY`): `FAILED`
+   * Step 3 (`STEP-3-KEY`): `BLOCKED`
+
+   If the first step fails:
+   * Step 1: `FAILED`
+   * Subsequent steps: `BLOCKED`
+
+   If all steps succeed:
+   * All steps: `PASSED`
+
+4. **Status Consolidation:**
+   If multiple steps in a scenario share the same Xray test case key, the results are consolidated into a single Xray test result, with the highest-priority status taking precedence (e.g., `FAILED` takes precedence over `PASSED`).
+
 === Setting up PDSL with XRAY
 
 ==== Xray Authentication
@@ -235,5 +298,3 @@ link:src/test/java/com/google/pdsl/xray/XrayIntegrationTest.java[XrayIntegration
 
 Run `mvn antlr4:antlr4` to generate the code needed to run the tests
 If you still have compilation errors in your IDE, you probably need to mark the directory ./target/generated-sources/antlr4 as a test sources root
-
-a
