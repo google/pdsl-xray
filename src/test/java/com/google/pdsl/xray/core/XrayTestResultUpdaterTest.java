@@ -190,83 +190,6 @@ class XrayTestResultUpdaterTest {
     }
 
     @Test
-    void addResults_withStepLevelComments_stepPopulation() {
-        XrayTestResultUpdater updater = xrayTestResultUpdaterBuilder.withXrayAuth(xrayAuth).build();
-
-        Map<Integer, List<String>> stepComments = new HashMap<>();
-        stepComments.put(0, List.of("@xray-test-case=STEP-1-KEY"));
-        stepComments.put(1, List.of("@xray-test-case=STEP-2-KEY"));
-        stepComments.put(2, List.of("@xray-test-case=STEP-3-KEY"));
-        stepComments.put(3, List.of("@xray-test-case=STEP-4-KEY"));
-        TaggedTestCase testCase = createMockTestCase(stepComments);
-
-        // Mock TestResult
-        TestResult result = Mockito.mock(TestResult.class);
-        when(result.getTestCase()).thenReturn(testCase);
-        when(result.getStatus()).thenReturn(TechnicalReportData.Status.PASSED);
-
-        updater.addResults(List.of(result));
-
-        // Let's assert on the TestItems stepDescriptions using our new testing helper
-        List<TestItem> testItems = updater.getTestItemsForTestPlan(TEST_PLAN_KEY);
-
-        TestItem step1TestItem = testItems.stream()
-                .filter(item -> item.testKey().equals("STEP-1-KEY"))
-                .findFirst()
-                .orElseThrow();
-        assertEquals(STEP_DESCRIPTIONS_LIST.subList(0, 1), step1TestItem.stepDescription());
-
-        TestItem step2TestItem = testItems.stream()
-                .filter(item -> item.testKey().equals("STEP-2-KEY"))
-                .findFirst()
-                .orElseThrow();
-        assertEquals(STEP_DESCRIPTIONS_LIST.subList(1, 2), step2TestItem.stepDescription());
-
-        TestItem step3TestItem = testItems.stream()
-                .filter(item -> item.testKey().equals("STEP-3-KEY"))
-                .findFirst()
-                .orElseThrow();
-        assertEquals(STEP_DESCRIPTIONS_LIST.subList(2, 3), step3TestItem.stepDescription());
-
-        TestItem step4TestItem = testItems.stream()
-                .filter(item -> item.testKey().equals("STEP-4-KEY"))
-                .findFirst()
-                .orElseThrow();
-        assertEquals(STEP_DESCRIPTIONS_LIST.subList(3, STEP_DESCRIPTIONS_LIST.size()), step4TestItem.stepDescription());
-    }
-
-    @Test
-    void addResults_withStepLevelComments_sparseSteps_subsumesSubsequentSteps() {
-        XrayTestResultUpdater updater = xrayTestResultUpdaterBuilder.withXrayAuth(xrayAuth).build();
-
-        Map<Integer, List<String>> stepComments = new HashMap<>();
-        stepComments.put(0, List.of("@xray-test-case=STEP-1-KEY"));
-        stepComments.put(2, List.of("@xray-test-case=STEP-3-KEY"));
-        TaggedTestCase testCase = createMockTestCase(stepComments);
-
-        // Mock TestResult
-        TestResult result = Mockito.mock(TestResult.class);
-        when(result.getTestCase()).thenReturn(testCase);
-        when(result.getStatus()).thenReturn(TechnicalReportData.Status.PASSED);
-
-        updater.addResults(List.of(result));
-
-        List<TestItem> testItems = updater.getTestItemsForTestPlan(TEST_PLAN_KEY);
-
-        TestItem step1TestItem = testItems.stream()
-                .filter(item -> item.testKey().equals("STEP-1-KEY"))
-                .findFirst()
-                .orElseThrow();
-        assertEquals(STEP_DESCRIPTIONS_LIST.subList(0, 2), step1TestItem.stepDescription());
-
-        TestItem step2TestItem = testItems.stream()
-                .filter(item -> item.testKey().equals("STEP-3-KEY"))
-                .findFirst()
-                .orElseThrow();
-        assertEquals(STEP_DESCRIPTIONS_LIST.subList(2, STEP_DESCRIPTIONS_LIST.size()), step2TestItem.stepDescription());
-    }
-
-    @Test
     void addResults_withStepLevelComments_lastStepFailed_precedingStepsPassed() {
         XrayTestResultUpdater updater = xrayTestResultUpdaterBuilder.withXrayAuth(xrayAuth).build();
 
@@ -363,6 +286,84 @@ class XrayTestResultUpdaterTest {
         AssertionError exception = assertThrows(AssertionError.class, () ->
                 getTestStatus(testExecution, "NON-EXISTENT-KEY"));
         assertEquals("Could not find test with key NON-EXISTENT-KEY", exception.getMessage());
+    }
+
+
+    @Test
+    void addResults_withStepLevelComments_stepPopulation() {
+        XrayTestResultUpdater updater = xrayTestResultUpdaterBuilder.withXrayAuth(xrayAuth).build();
+
+        Map<Integer, List<String>> stepComments = new HashMap<>();
+        stepComments.put(0, List.of("@xray-test-case=STEP-1-KEY"));
+        stepComments.put(1, List.of("@xray-test-case=STEP-2-KEY"));
+        stepComments.put(2, List.of("@xray-test-case=STEP-3-KEY"));
+        stepComments.put(3, List.of("@xray-test-case=STEP-4-KEY"));
+        TaggedTestCase testCase = createMockTestCase(stepComments);
+
+        // Mock TestResult
+        TestResult result = Mockito.mock(TestResult.class);
+        when(result.getTestCase()).thenReturn(testCase);
+        when(result.getStatus()).thenReturn(TechnicalReportData.Status.PASSED);
+
+        updater.addResults(List.of(result));
+
+        // Let's assert on the TestItems stepDescriptions using our new testing helper
+        List<TestItem> testItems = updater.getTestItemsForTestPlan(TEST_PLAN_KEY);
+
+        TestItem step1TestItem = testItems.stream()
+                .filter(item -> item.testKey().equals("STEP-1-KEY"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(STEP_DESCRIPTIONS_LIST.subList(0, 1), step1TestItem.stepDescription());
+
+        TestItem step2TestItem = testItems.stream()
+                .filter(item -> item.testKey().equals("STEP-2-KEY"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(STEP_DESCRIPTIONS_LIST.subList(1, 2), step2TestItem.stepDescription());
+
+        TestItem step3TestItem = testItems.stream()
+                .filter(item -> item.testKey().equals("STEP-3-KEY"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(STEP_DESCRIPTIONS_LIST.subList(2, 3), step3TestItem.stepDescription());
+
+        TestItem step4TestItem = testItems.stream()
+                .filter(item -> item.testKey().equals("STEP-4-KEY"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(STEP_DESCRIPTIONS_LIST.subList(3, STEP_DESCRIPTIONS_LIST.size()), step4TestItem.stepDescription());
+    }
+
+    @Test
+    void addResults_withStepLevelComments_sparseSteps_subsumesSubsequentSteps() {
+        XrayTestResultUpdater updater = xrayTestResultUpdaterBuilder.withXrayAuth(xrayAuth).build();
+
+        Map<Integer, List<String>> stepComments = new HashMap<>();
+        stepComments.put(0, List.of("@xray-test-case=STEP-1-KEY"));
+        stepComments.put(2, List.of("@xray-test-case=STEP-3-KEY"));
+        TaggedTestCase testCase = createMockTestCase(stepComments);
+
+        // Mock TestResult
+        TestResult result = Mockito.mock(TestResult.class);
+        when(result.getTestCase()).thenReturn(testCase);
+        when(result.getStatus()).thenReturn(TechnicalReportData.Status.PASSED);
+
+        updater.addResults(List.of(result));
+
+        List<TestItem> testItems = updater.getTestItemsForTestPlan(TEST_PLAN_KEY);
+
+        TestItem step1TestItem = testItems.stream()
+                .filter(item -> item.testKey().equals("STEP-1-KEY"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(STEP_DESCRIPTIONS_LIST.subList(0, 2), step1TestItem.stepDescription());
+
+        TestItem step2TestItem = testItems.stream()
+                .filter(item -> item.testKey().equals("STEP-3-KEY"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(STEP_DESCRIPTIONS_LIST.subList(2, STEP_DESCRIPTIONS_LIST.size()), step2TestItem.stepDescription());
     }
 
     @Test
