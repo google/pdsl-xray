@@ -633,14 +633,23 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
             return;
         }
         List<String> stepDescriptions = testCase.getUnfilteredPhraseBody();
+        if (stepDescriptions == null || stepDescriptions.isEmpty()) {
+            return;
+        }
         Integer failingIdx = result.getFailingPhrase().isPresent() ? result.getFailingPhrase().get().getPrefilteredIndex() : null;
 
         Map<String, TestItem> uniqueStepTestItems = new LinkedHashMap<>();
 
-        List<Integer> sortedActiveAnnotatedIndices = getSortedActiveAnnotatedIndices(rawStepComments);
+        List<Integer> sortedActiveAnnotatedIndices = getSortedActiveAnnotatedIndices(rawStepComments, stepDescriptions.size());
 
         for (Map.Entry<Integer, ?> entry : rawStepComments.entrySet()) {
+            if (entry.getKey() == null) {
+                continue;
+            }
             int stepIndex = entry.getKey();
+            if (stepIndex < 0 || stepIndex >= stepDescriptions.size()) {
+                continue;
+            }
             if (entry.getValue() instanceof Collection<?> commentsList) {
                 for (Object commentObj : new HashSet<>(commentsList)) {
                     if (commentObj instanceof String comment) {
@@ -676,11 +685,14 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         }
     }
 
-    private static List<Integer> getSortedActiveAnnotatedIndices(Map<Integer, ?> rawStepComments) {
+    private static List<Integer> getSortedActiveAnnotatedIndices(Map<Integer, ?> rawStepComments, int totalSteps) {
         Set<Integer> uniqueActiveAnnotatedIndices = new HashSet<>();
         for (Map.Entry<Integer, ?> entry : rawStepComments.entrySet()) {
+            if (entry.getKey() == null) {
+                continue;
+            }
             int stepIdxVal = entry.getKey();
-            if (stepIdxVal > 0 && entry.getValue() instanceof Collection<?> commentsList) {
+            if (stepIdxVal >= 0 && stepIdxVal < totalSteps && entry.getValue() instanceof Collection<?> commentsList) {
                 for (Object commentObj : commentsList) {
                     if (commentObj instanceof String comment) {
                         if (extractTagValue(comment.trim(), XrayTestTag.CASE).isPresent()) {
@@ -712,7 +724,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         }
         if (failingStepIndex < startIndex) {
             return StepStatus.BLOCKED;
-        } else if (failingStepIndex >= startIndex && failingStepIndex < endIndex) {
+        } else if (failingStepIndex < endIndex) {
             return StepStatus.FAILED;
         } else {
             return StepStatus.PASSED;
@@ -756,22 +768,19 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
     }
 
     private static int calculateStartIndex(int stepIndex, int totalSteps) {
-        return stepIndex <= 0 ? 0 : Math.min(stepIndex - 1, totalSteps);
+        return Math.clamp(stepIndex, 0, totalSteps);
     }
 
     private static int calculateEndIndex(int stepIndex, List<Integer> sortedActiveAnnotatedIndices, int totalSteps) {
-        if (stepIndex <= 0) {
-            return totalSteps;
-        }
         int endIndex = totalSteps;
         for (int idx : sortedActiveAnnotatedIndices) {
             if (idx > stepIndex) {
-                endIndex = idx - 1;
+                endIndex = idx;
                 break;
             }
         }
         int startIndex = calculateStartIndex(stepIndex, totalSteps);
-        return Math.max(startIndex, Math.min(endIndex, totalSteps));
+        return Math.clamp(endIndex, startIndex, totalSteps);
     }
 
     public Collection<XrayTestExecution> getXrayPayload() {
