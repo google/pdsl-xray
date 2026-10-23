@@ -1,7 +1,6 @@
 package com.google.pdsl.xray.core;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
 import com.google.pdsl.xray.constants.StepStatus;
@@ -31,6 +30,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
@@ -62,7 +62,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
     private final XrayAuth xrayAuth;
     private final XrayApiClient xrayApiClient;
     private final ObjectMapper objectMapper; // Jackson ObjectMapper for JSON serialization
-    private final Map<String, HierarchicalTestSuite> testCaseXrayTestExecutionResultMap = new HashMap<>();
+    private final Map<String, HierarchicalTestSuite> testCaseXrayTestExecutionResultMap = new ConcurrentHashMap<>();
     private final Logger logger = Logger.getLogger(this.getClass().getName());
     private final Set<String> environments;
     private final String description;
@@ -482,6 +482,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
     Path info = null;
     Path results = null;
 
+
     try {
       info = Files.writeString(tempDirectory.resolve(String.format("info-%s.json", UUID.randomUUID())),
         objectMapper.writeValueAsString(fieldSupplier.get()), Charsets.UTF_8,
@@ -497,16 +498,18 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         tempDirectory.toFile().deleteOnExit();
         return responses;
       }
-
+      Map<Object, Object> infoMap =  fieldSupplier.get();
       XrayTestExecution masterExecution = allExecutions.iterator().next();
+      Map xrayFields = (Map) infoMap.get("xrayFields");
+      final String testPlanKey = xrayFields != null ? (String) xrayFields.get("testPlanKey") : masterExecution.info().testPlanKey();
       Set<XrayTestResult> consolidatedTests = new HashSet<>();
 
       for (XrayTestExecution execution : allExecutions) {
         consolidatedTests.addAll(execution.tests());
       }
 
-      if (filterTestsByTestPlan && masterExecution.info().testPlanKey() != null) {
-        Set<String> testsInPlan = xrayApiClient.fetchTestsFromTestPlan(masterExecution.info().testPlanKey());
+      if (filterTestsByTestPlan && testPlanKey != null) {
+        Set<String> testsInPlan = xrayApiClient.fetchTestsFromTestPlan(testPlanKey);
         consolidatedTests.removeIf(test -> !testsInPlan.contains(test.testKey()));
         if (consolidatedTests.isEmpty()) {
           logger.info("No test results found after filtering by test plan. Skipping publishing.");

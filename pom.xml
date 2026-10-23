@@ -18,7 +18,7 @@ limitations under the License.
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.google.pdsl</groupId>
     <artifactId>pdsl-xray</artifactId>
-    <version>5.2.3-SNAPSHOT</version>
+    <version>5.2.4-SNAPSHOT</version>
     <packaging>jar</packaging>
     <name>xray_pdsl</name>
     <url>https://maven.apache.org</url>
@@ -234,7 +234,7 @@ limitations under the License.
                     <configuration>
                         <sourceDirectory>src/test/antlr4</sourceDirectory>
                         <arguments>
-                            <argumenent>-visitor</argumenent>
+                            <argument>-visitor</argument>
                         </arguments>
                     </configuration>
                     <executions>
