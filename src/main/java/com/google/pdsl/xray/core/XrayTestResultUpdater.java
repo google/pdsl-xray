@@ -587,7 +587,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
                                 envTags.isEmpty() ? environments : envTags,
                                 testCase.getUnfilteredPhraseBody(),
                                 result.getFailureReason().orElse(null),
-                                result.getFailingPhrase().isPresent() ? result.getFailingPhrase().get().getPrefilteredIndex() : null
+                                getFailingStepIndex(result)
                         ))
                         .collect(Collectors.toSet());
                 HierarchicalTestSuite suite = testCaseXrayTestExecutionResultMap.computeIfAbsent(testPlan.key(), (k) -> new HierarchicalTestSuite());
@@ -639,7 +639,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         if (stepDescriptions == null || stepDescriptions.isEmpty()) {
             return;
         }
-        Integer failingIdx = result.getFailingPhrase().isPresent() ? result.getFailingPhrase().get().getPrefilteredIndex() : null;
+        int failingIdx = getFailingStepIndex(result);
 
         Map<String, TestItem> uniqueStepTestItems = new LinkedHashMap<>();
 
@@ -672,7 +672,7 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
                                             testExecutionTags.stream().findFirst().orElse(null),
                                             envTags.isEmpty() ? environments : envTags,
                                             subStepDescriptions,
-                                            (failingIdx != null && failingIdx >= startIndex && failingIdx < endIndex) ? result.getFailureReason().orElse(null) : null,
+                                            (failingIdx >= startIndex && failingIdx < endIndex) ? result.getFailureReason().orElse(null) : null,
                                             failingIdx
                                     );
 
@@ -721,8 +721,8 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         return existing;
     }
 
-    private StepStatus determineStepStatus(Integer failingStepIndex, int startIndex, int endIndex) {
-        if (failingStepIndex == null) {
+    private StepStatus determineStepStatus(int failingStepIndex, int startIndex, int endIndex) {
+        if (failingStepIndex < 0) {
             return StepStatus.PASSED;
         }
         if (failingStepIndex < startIndex) {
@@ -768,6 +768,10 @@ public class XrayTestResultUpdater implements GherkinObserver, ExecutorObserver 
         } catch (RuntimeException e) {
             return DEFAULT_POSITION;
         }
+    }
+
+    private static int getFailingStepIndex(TestResult result) {
+        return result.getPhrasesSkippedDueToFailure() != 0 ? result.getPassingPhraseTotal() : -1;
     }
 
     private static int calculateStartIndex(int stepIndex, int totalSteps) {

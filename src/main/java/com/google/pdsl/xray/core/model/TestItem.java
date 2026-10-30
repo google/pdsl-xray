@@ -8,11 +8,12 @@ public record TestItem(String title, String testKey, String status, String testP
                        Set<String> environments,
                        List<String> stepDescription,
                        Throwable throwable,
-                       Integer failedStepIndex) {
+                       int failedStepIndex) {
 
     public Optional<Integer> getFailedStepIndex() {
-        return Optional.ofNullable(failedStepIndex);
+        return failedStepIndex >= 0 ? Optional.of(failedStepIndex) : Optional.empty();
     }
+
     public Optional<Throwable> getThrowable() {
         return Optional.ofNullable(throwable);
     }

@@ -6,7 +6,6 @@ import com.google.pdsl.xray.models.XrayTestExecution;
 import com.google.pdsl.xray.models.XrayTestResult;
 import com.pdsl.reports.TestResult;
 import com.pdsl.reports.proto.TechnicalReportData;
-import com.pdsl.specifications.Phrase;
 import com.pdsl.testcases.TaggedTestCase;
 import com.pdsl.testcases.TestCase;
 import org.apache.http.HttpResponse;
@@ -34,6 +33,8 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -141,14 +142,12 @@ class XrayTestResultUpdaterTest {
         stepComments.put(3, List.of("@xray-test-case=STEP-4-KEY"));
         TaggedTestCase testCase = createMockTestCase(stepComments);
 
-        Phrase failingPhrase = Mockito.mock(Phrase.class);
-        when(failingPhrase.getPrefilteredIndex()).thenReturn(1);
-
         TestResult result = Mockito.mock(TestResult.class);
         when(result.getTestCase()).thenReturn(testCase);
         when(result.getStatus()).thenReturn(TechnicalReportData.Status.FAILED);
         when(result.getFailureReason()).thenReturn(Optional.of(new RuntimeException("Test Failure")));
-        when(result.getFailingPhrase()).thenReturn(Optional.of(failingPhrase));
+        when(result.getPhrasesSkippedDueToFailure()).thenReturn(2);
+        when(result.getPassingPhraseTotal()).thenReturn(1);
 
         // when
         updater.addResults(List.of(result));
@@ -176,13 +175,11 @@ class XrayTestResultUpdaterTest {
         stepComments.put(2, List.of("@xray-test-case=STEP-1-KEY"));
         TaggedTestCase testCase = createMockTestCase(stepComments);
 
-        Phrase failingPhrase = Mockito.mock(Phrase.class);
-        when(failingPhrase.getPrefilteredIndex()).thenReturn(1);
-
         TestResult result = Mockito.mock(TestResult.class);
         when(result.getTestCase()).thenReturn(testCase);
         when(result.getStatus()).thenReturn(TechnicalReportData.Status.FAILED);
-        when(result.getFailingPhrase()).thenReturn(Optional.of(failingPhrase));
+        when(result.getPhrasesSkippedDueToFailure()).thenReturn(2);
+        when(result.getPassingPhraseTotal()).thenReturn(1);
 
         // when
         updater.addResults(List.of(result));
@@ -211,13 +208,11 @@ class XrayTestResultUpdaterTest {
         stepComments.put(2, List.of("@xray-test-case=STEP-3-KEY"));
         TaggedTestCase testCase = createMockTestCase(stepComments);
 
-        Phrase failingPhrase = Mockito.mock(Phrase.class);
-        when(failingPhrase.getPrefilteredIndex()).thenReturn(2);
-
         TestResult result = Mockito.mock(TestResult.class);
         when(result.getTestCase()).thenReturn(testCase);
         when(result.getStatus()).thenReturn(TechnicalReportData.Status.FAILED);
-        when(result.getFailingPhrase()).thenReturn(Optional.of(failingPhrase));
+        when(result.getPhrasesSkippedDueToFailure()).thenReturn(1);
+        when(result.getPassingPhraseTotal()).thenReturn(2);
 
         // when
         updater.addResults(List.of(result));
@@ -243,14 +238,12 @@ class XrayTestResultUpdaterTest {
         stepComments.put(2, List.of("@xray-test-case=STEP-3-KEY"));
         TaggedTestCase testCase = createMockTestCase(stepComments);
 
-        // Phrase at index 1 (part of STEP-1-KEY) fails
-        Phrase failingPhrase = Mockito.mock(Phrase.class);
-        when(failingPhrase.getPrefilteredIndex()).thenReturn(1);
-
         TestResult result = Mockito.mock(TestResult.class);
         when(result.getTestCase()).thenReturn(testCase);
         when(result.getStatus()).thenReturn(TechnicalReportData.Status.FAILED);
-        when(result.getFailingPhrase()).thenReturn(Optional.of(failingPhrase));
+        // Phrase at index 1 (part of STEP-1-KEY) fails
+        when(result.getPhrasesSkippedDueToFailure()).thenReturn(2);
+        when(result.getPassingPhraseTotal()).thenReturn(1);
 
         // when
         updater.addResults(List.of(result));
@@ -277,7 +270,7 @@ class XrayTestResultUpdaterTest {
         TestResult result = Mockito.mock(TestResult.class);
         when(result.getTestCase()).thenReturn(testCase);
         when(result.getStatus()).thenReturn(TechnicalReportData.Status.FAILED);
-        when(result.getFailingPhrase()).thenReturn(Optional.empty());
+        when(result.getPhrasesSkippedDueToFailure()).thenReturn(0);
 
         // when
         updater.addResults(List.of(result));
@@ -289,6 +282,144 @@ class XrayTestResultUpdaterTest {
         assertEquals(StepStatus.FAILED.name(), getTestStatus(testExecution, DEFAULT_SCENARIO_KEY));
         assertEquals(StepStatus.PASSED.name(), getTestStatus(testExecution, "STEP-1-KEY"));
         assertEquals(StepStatus.PASSED.name(), getTestStatus(testExecution, "STEP-2-KEY"));
+    }
+
+    @Test
+    void addResults_withStepLevelComments_firstPhraseFailed_marksFirstStepFailedAndSubsequentStepsBlocked() {
+        // given
+        XrayTestResultUpdater updater = xrayTestResultUpdaterBuilder.withXrayAuth(xrayAuth).build();
+
+        // Setup step comments:
+        // Step 1 (index 0) has STEP-1-KEY -> should be FAILED
+        // Step 2 (index 1) has STEP-2-KEY -> should be BLOCKED
+        // Step 4 (index 3) has STEP-4-KEY -> should be BLOCKED
+        Map<Integer, List<String>> stepComments = new HashMap<>();
+        stepComments.put(0, List.of("@xray-test-case=STEP-1-KEY"));
+        stepComments.put(1, List.of("@xray-test-case=STEP-2-KEY"));
+        stepComments.put(3, List.of("@xray-test-case=STEP-4-KEY"));
+        TaggedTestCase testCase = createMockTestCase(stepComments);
+
+        TestResult result = Mockito.mock(TestResult.class);
+        when(result.getTestCase()).thenReturn(testCase);
+        when(result.getStatus()).thenReturn(TechnicalReportData.Status.FAILED);
+        when(result.getFailureReason()).thenReturn(Optional.of(new RuntimeException("First step failure")));
+        when(result.getPhrasesSkippedDueToFailure()).thenReturn(3);
+        when(result.getPassingPhraseTotal()).thenReturn(0);
+
+        // when
+        updater.addResults(List.of(result));
+
+        // then
+        // SCENARIO-KEY, STEP-1-KEY, STEP-2-KEY, STEP-4-KEY
+        XrayTestExecution testExecution = getTestExecution(updater, TEST_EXECUTION_KEY);
+        assertEquals(4, testExecution.tests().size());
+        assertEquals(StepStatus.FAILED.name(), getTestStatus(testExecution, DEFAULT_SCENARIO_KEY));
+        assertEquals(StepStatus.FAILED.name(), getTestStatus(testExecution, "STEP-1-KEY"));
+        assertEquals(StepStatus.BLOCKED.name(), getTestStatus(testExecution, "STEP-2-KEY"));
+        assertEquals(StepStatus.BLOCKED.name(), getTestStatus(testExecution, "STEP-4-KEY"));
+    }
+
+    @Test
+    void addResults_whenPhrasesSkippedDueToFailureNonZero_setsFailedStepIndexOnScenarioAndStepTestItems() {
+        // given
+        XrayTestResultUpdater updater = xrayTestResultUpdaterBuilder.withXrayAuth(xrayAuth).build();
+
+        Map<Integer, List<String>> stepComments = new HashMap<>();
+        stepComments.put(0, List.of("@xray-test-case=STEP-1-KEY"));
+        stepComments.put(1, List.of("@xray-test-case=STEP-2-KEY"));
+        TaggedTestCase testCase = createMockTestCase(stepComments);
+
+        TestResult result = Mockito.mock(TestResult.class);
+        when(result.getTestCase()).thenReturn(testCase);
+        when(result.getStatus()).thenReturn(TechnicalReportData.Status.FAILED);
+        when(result.getPhrasesSkippedDueToFailure()).thenReturn(2);
+        when(result.getPassingPhraseTotal()).thenReturn(1);
+
+        // when
+        updater.addResults(List.of(result));
+
+        // then
+        List<TestItem> testItems = updater.getTestItemsForTestPlan(TEST_PLAN_KEY);
+        assertEquals(3, testItems.size());
+        for (TestItem item : testItems) {
+            assertEquals(1, item.failedStepIndex());
+        }
+    }
+
+    @Test
+    void addResults_whenPhrasesSkippedDueToFailureIsZero_failedStepIndexIsNullAndPassingTotalNeverCalled() {
+        // given
+        XrayTestResultUpdater updater = xrayTestResultUpdaterBuilder.withXrayAuth(xrayAuth).build();
+
+        Map<Integer, List<String>> stepComments = new HashMap<>();
+        stepComments.put(0, List.of("@xray-test-case=STEP-1-KEY"));
+        stepComments.put(1, List.of("@xray-test-case=STEP-2-KEY"));
+        TaggedTestCase testCase = createMockTestCase(stepComments);
+
+        TestResult result = Mockito.mock(TestResult.class);
+        when(result.getTestCase()).thenReturn(testCase);
+        when(result.getStatus()).thenReturn(TechnicalReportData.Status.FAILED);
+        when(result.getPhrasesSkippedDueToFailure()).thenReturn(0);
+
+        // when
+        updater.addResults(List.of(result));
+
+        // then
+        List<TestItem> testItems = updater.getTestItemsForTestPlan(TEST_PLAN_KEY);
+        assertEquals(3, testItems.size());
+        for (TestItem item : testItems) {
+            assertTrue(item.failedStepIndex() == -1);
+        }
+        verify(result, never()).getPassingPhraseTotal();
+    }
+
+    @Test
+    void addResults_withoutStepComments_whenPhrasesSkippedDueToFailureNonZero_setsFailedStepIndexOnScenarioItem() {
+        // given
+        XrayTestResultUpdater updater = xrayTestResultUpdaterBuilder.withXrayAuth(xrayAuth).build();
+
+        TaggedTestCase testCase = createMockTestCase(Map.of());
+
+        TestResult result = Mockito.mock(TestResult.class);
+        when(result.getTestCase()).thenReturn(testCase);
+        when(result.getStatus()).thenReturn(TechnicalReportData.Status.FAILED);
+        when(result.getPhrasesSkippedDueToFailure()).thenReturn(2);
+        when(result.getPassingPhraseTotal()).thenReturn(1);
+
+        // when
+        updater.addResults(List.of(result));
+
+        // then
+        List<TestItem> testItems = updater.getTestItemsForTestPlan(TEST_PLAN_KEY);
+        assertEquals(1, testItems.size());
+        TestItem scenarioItem = testItems.getFirst();
+        assertEquals(DEFAULT_SCENARIO_KEY, scenarioItem.testKey());
+        assertEquals(1, scenarioItem.failedStepIndex());
+    }
+
+    @Test
+    void addResults_withoutStepComments_whenPhrasesSkippedDueToFailureIsZero_scenarioFailedStepIndexIsEmpty() {
+        // given
+        XrayTestResultUpdater updater = xrayTestResultUpdaterBuilder.withXrayAuth(xrayAuth).build();
+
+        TaggedTestCase testCase = createMockTestCase(Map.of());
+
+        TestResult result = Mockito.mock(TestResult.class);
+        when(result.getTestCase()).thenReturn(testCase);
+        when(result.getStatus()).thenReturn(TechnicalReportData.Status.FAILED);
+        when(result.getPhrasesSkippedDueToFailure()).thenReturn(0);
+
+        // when
+        updater.addResults(List.of(result));
+
+        // then
+        List<TestItem> testItems = updater.getTestItemsForTestPlan(TEST_PLAN_KEY);
+        assertEquals(1, testItems.size());
+        TestItem scenarioItem = testItems.getFirst();
+        assertEquals(DEFAULT_SCENARIO_KEY, scenarioItem.testKey());
+        assertEquals(-1, scenarioItem.failedStepIndex());
+        assertTrue(scenarioItem.getFailedStepIndex().isEmpty());
+        verify(result, never()).getPassingPhraseTotal();
     }
 
     @Test
