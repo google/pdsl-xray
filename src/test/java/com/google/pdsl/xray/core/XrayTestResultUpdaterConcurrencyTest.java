@@ -175,7 +175,6 @@ class XrayTestResultUpdaterConcurrencyTest {
         when(result.getTestCase()).thenReturn(testCase);
         when(result.getStatus()).thenReturn(status);
         when(result.getFailureReason()).thenReturn(Optional.empty());
-        when(result.getFailingPhrase()).thenReturn(Optional.empty());
         return result;
     }
 
