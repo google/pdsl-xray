@@ -2,38 +2,98 @@ name: Publish to Maven Central
 
 on:
   release:
-    types: [published] # Trigger on a new GitHub Release being published
+    types: [published]
+
+permissions: {}
 
 jobs:
   publish:
+    if: github.repository == 'google/pdsl-xray'
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Needed for actions/checkout
-      packages: write # If you also plan to publish to GitHub Packages, otherwise can be removed
+      contents: read
+      id-token: write
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-    - name: Set up Java and Maven
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'temurin' # Or 'zulu', 'adopt', etc.
-        java-version: '21'
-        # Configure Maven settings for Sonatype authentication
-        server-id: sonatype-nexus-staging # Matches the ID in your pom.xml distributionManagement
-        server-username: MAVEN_USERNAME
-        server-password: MAVEN_PASSWORD
-        # Configure GPG for artifact signing
-        gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
-        gpg-passphrase: ${{ secrets.GPG_PASSPHRASE }}
+      - name: Set up Java and GPG signing
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+          gpg-passphrase: ${{ secrets.GPG_PASSPHRASE }}
 
-    - name: Build and Publish to Maven Central
-      run: mvn clean antlr4:antlr4 deploy -Prelease -DskipTests
-      # -Prelease activates the release profile if you have one.
-      # -DskipTests skips tests during deployment, often desired for releases.
-      env:
-        # Pass secrets as environment variables, which setup-java uses to create settings.xml
-        MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
-        MAVEN_PASSWORD: ${{ secrets.MAVEN_PASSWORD }}
-        GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-        GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: 'projects/305452601764/locations/global/workloadIdentityPools/builders/providers/github'
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+
+      - name: Clean up prior staged artifacts in OSS Exit Gate repository
+        run: |
+          gcloud artifacts packages delete "com.google.pdsl:pdsl-xray" \
+            --project="oss-exit-gate-prod" \
+            --location="us" \
+            --repository="pdsl-xray--mavencentral" \
+            --quiet 2>/dev/null || true
+
+      - name: Build, GPG-sign, and deploy to OSS Exit Gate Artifact Registry
+        run: |
+          set -euo pipefail
+          set +x
+          POM_VERSION="$(mvn -q -DforceStdout help:evaluate -Dexpression=project.version)"
+          if [[ "${POM_VERSION}" == *-SNAPSHOT ]]; then
+            echo "::error::pom.xml version '${POM_VERSION}' ends in -SNAPSHOT; release version required for Maven Central." >&2
+            exit 1
+          fi
+          ACCESS_TOKEN="$(gcloud auth print-access-token 2>/dev/null || gcloud auth application-default print-access-token)"
+          SETTINGS_XML="$(mktemp "${RUNNER_TEMP}/exit-gate-settings.XXXXXX.xml")"
+          chmod 600 "${SETTINGS_XML}"
+          trap 'rm -f "${SETTINGS_XML}"' EXIT
+          cat <<EOF > "${SETTINGS_XML}"
+          <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
+            <servers>
+              <server>
+                <id>exit-gate</id>
+                <username>oauth2accesstoken</username>
+                <password>${ACCESS_TOKEN}</password>
+              </server>
+            </servers>
+          </settings>
+          EOF
+          unset ACCESS_TOKEN
+          mvn -B clean antlr4:antlr4 verify \
+            org.apache.maven.plugins:maven-deploy-plugin:3.1.2:deploy \
+            -Prelease \
+            -DskipTests \
+            --settings "${SETTINGS_XML}" \
+            -DaltDeploymentRepository="exit-gate::https://us-maven.pkg.dev/oss-exit-gate-prod/pdsl-xray--mavencentral"
+
+      - name: Trigger OSS Exit Gate Maven Central release
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          cat <<EOF > manifest.json
+          {
+            "publish_all": false,
+            "publishing_groups": [
+              {
+                "namespace": "com.google.pdsl",
+                "packages": [
+                  { "name": "pdsl-xray" }
+                ]
+              }
+            ]
+          }
+          EOF
+          gcloud storage cp manifest.json \
+            "gs://oss-exit-gate-prod-projects-bucket/pdsl-xray/mavencentral/manifests/manifest-${RUN_ID}-${RUN_ATTEMPT}.json"
